@@ -24,7 +24,7 @@
 #
 
 # This repo's root import path (under GOPATH).
-ROOT := github.com/lsytj0413/golang-project-template
+ROOT := github.com/fornext-io/fornext
 
 # Module name.
 NAME := golang-project-template

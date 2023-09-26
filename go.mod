@@ -1,4 +1,4 @@
-module github.com/lsytj0413/golang-project-template
+module github.com/fornext-io/fornext
 
 go 1.21
 
