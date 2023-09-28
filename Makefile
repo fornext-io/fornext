@@ -149,7 +149,7 @@ $(MOCKGEN):
 
 addheaders:
 	@command -v addlicense > /dev/null || go install -v github.com/google/addlicense@v0.0.0-20210428195630-6d92264d7170
-	@addlicense -c "The Songlin Yang Authors" -l mit .
+	@addlicense -c "The fornext Authors" -l mit .
 
 PROTOCGO := $(BIN_DIR)/protoc-gen-go
 PROTOCGRPC := $(BIN_DIR)/protoc-gen-go-grpc
