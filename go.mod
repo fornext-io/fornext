@@ -5,6 +5,7 @@ go 1.21
 require (
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.3
+	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.15.2
 	github.com/lsytj0413/ena v0.1.1
 	github.com/ohler55/ojg v1.19.3

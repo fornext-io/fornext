@@ -46,8 +46,32 @@
             "Type": "Map",
             "Next": "StateChoice",
             "ItemProcessor": {
-                "StartAt": "Map1Pass",
+                "StartAt": "Map1Parallel",
                 "States": {
+                    "Map1Parallel": {
+                        "Next": "Map1Pass",
+                        "Type": "Parallel",
+                        "Branches": [
+                            {
+                                "StartAt": "Map1ParallelBranch1",
+                                "States": {
+                                    "Map1ParallelBranch1": {
+                                        "Type": "Pass",
+                                        "End": true
+                                    }
+                                }
+                            },
+                            {
+                                "StartAt": "Map1ParallelBranch2",
+                                "States": {
+                                    "Map1ParallelBranch2": {
+                                        "Type": "Pass",
+                                        "End": true
+                                    }
+                                }
+                            }
+                        ]
+                    },
                     "Map1Pass": {
                         "Type": "Pass",
                         "End": true
