@@ -1,12 +1,13 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 
 	"github.com/fornext-io/fornext/pkg/asl"
+	"github.com/fornext-io/fornext/pkg/executor"
 	"github.com/fornext-io/fornext/test"
 )
 
@@ -22,5 +23,8 @@ func main() {
 		panic(err)
 	}
 
-	asl.RunStateMachine(context.Background(), &sm)
+	e := executor.NewExecutor(&sm)
+	e.Run()
+	ec := e.WaitExecutionDone()
+	fmt.Printf("id: %v\n", ec.ID)
 }
