@@ -1,0 +1,119 @@
+{
+    "StartAt": "Account",
+    "States": {
+        "Account": {
+            "Next": "DescribeRegions",
+            "Resource": "AccountFunction.Arn",
+            "ResultPath": null,
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.TooManyRequestsException",
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 20,
+            "Type": "Task"
+        },
+        "AllRegions": {
+            "ItemsPath": "$.Regions.RegionNames",
+            "Iterator": {
+                "StartAt": "Regional",
+                "States": {
+                    "Regional": {
+                        "End": true,
+                        "Resource": "RegionalFunction.Arn",
+                        "Retry": [
+                            {
+                                "BackoffRate": 2,
+                                "ErrorEquals": [
+                                    "Lambda.TooManyRequestsException",
+                                    "Lambda.ServiceException",
+                                    "Lambda.AWSLambdaException",
+                                    "Lambda.SdkClientException"
+                                ],
+                                "IntervalSeconds": 2,
+                                "MaxAttempts": 6
+                            }
+                        ],
+                        "TimeoutSeconds": 20,
+                        "Type": "Task"
+                    }
+                }
+            },
+            "MaxConcurrency": 0,
+            "Next": "SSOAssignment",
+            "Parameters": {
+                "account_id.$": "$.account.accountId",
+                "region.$": "$$.Map.Item.Value"
+            },
+            "ResultPath": null,
+            "Type": "Map"
+        },
+        "DescribeRegions": {
+            "Next": "AllRegions",
+            "Parameters": {
+                "AllRegions": false,
+                "Filters": [
+                    {
+                        "Name": "opt-in-status",
+                        "Values": [
+                            "opt-in-not-required"
+                        ]
+                    }
+                ]
+            },
+            "Resource": "arn:aws:states:::aws-sdk:ec2:describeRegions",
+            "ResultPath": "$.Regions",
+            "ResultSelector": {
+                "RegionNames.$": "$.Regions[*].RegionName"
+            },
+            "Type": "Task"
+        },
+        "SSOAssignment": {
+            "Next": "ServiceCatalogPortfolio",
+            "Resource": "SSOAssignmentFunction.Arn",
+            "ResultPath": null,
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.TooManyRequestsException",
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 300,
+            "Type": "Task"
+        },
+        "ServiceCatalogPortfolio": {
+            "End": true,
+            "Resource": "ServiceCatalogPortfolioFunction.Arn",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.TooManyRequestsException",
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 300,
+            "Type": "Task"
+        }
+    }
+}

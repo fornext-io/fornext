@@ -1,0 +1,124 @@
+{
+    "Comment": "A state machine that deploys a lambda cloudformation stack",
+    "StartAt": "Check Stack Existence",
+    "States": {
+        "Change Set Created?": {
+            "Choices": [
+                {
+                    "Next": "Inspect Change Set Changes",
+                    "StringEquals": "complete",
+                    "Variable": "$.changeSetCreationStatus"
+                }
+            ],
+            "Default": "Wait Change Set Creation",
+            "Type": "Choice"
+        },
+        "Check Stack Existence": {
+            "Next": "Does Stack Exist?",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:CheckStackExistsStateMachineTask",
+            "ResultPath": "$.doesStackExists",
+            "Type": "Task"
+        },
+        "Create Change Set": {
+            "Next": "Wait Change Set Creation",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:CreateChangeSetStateMachineTask",
+            "ResultPath": "$.changeSetName",
+            "Type": "Task"
+        },
+        "Create Stack": {
+            "Next": "Wait Stack Creation",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:CreateStackStateMachineTask",
+            "ResultPath": "$.stackCreationDetails",
+            "Type": "Task"
+        },
+        "Delete Change Set": {
+            "Next": "Deployment Failed",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:ExecuteChangeSetStateMachineTask",
+            "ResultPath": "$.changeSetDeletionDetails",
+            "Type": "Task"
+        },
+        "Deployment Failed": {
+            "Cause": "Deployment Failed",
+            "Error": "Deployment Failed",
+            "Type": "Fail"
+        },
+        "Deployment Succeeded": {
+            "Type": "Succeed"
+        },
+        "Does Stack Exist?": {
+            "Choices": [
+                {
+                    "BooleanEquals": false,
+                    "Next": "Create Stack",
+                    "Variable": "$.doesStackExists"
+                }
+            ],
+            "Default": "Create Change Set",
+            "Type": "Choice"
+        },
+        "Execute Change Set": {
+            "Next": "Deployment Succeeded",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:ExecuteChangeSetStateMachineTask",
+            "ResultPath": "$.changeSetExecutionDetails",
+            "Type": "Task"
+        },
+        "Get Change Set Creation Status": {
+            "Next": "Change Set Created?",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:CheckChangeSetCreationStatusStateMachineTask",
+            "ResultPath": "$.changeSetCreationStatus",
+            "Type": "Task"
+        },
+        "Get Stack Creation Status": {
+            "Next": "Stack Created?",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:CheckStackCreationStatusStateMachineTask",
+            "ResultPath": "$.stackCreationStatus",
+            "Type": "Task"
+        },
+        "Inspect Change Set Changes": {
+            "Next": "Safe to Update Infra?",
+            "OutputPath": "$",
+            "Resource": "arn:aws:lambda:us-east-1:123456789012:function:InspectChangeSetStateMachineTask",
+            "ResultPath": "$.changeSetAction",
+            "Type": "Task"
+        },
+        "Safe to Update Infra?": {
+            "Choices": [
+                {
+                    "Next": "Execute Change Set",
+                    "StringEquals": "CAN-SAFELY-UPDATE-EXISTING-STACK",
+                    "Variable": "$.changeSetAction"
+                }
+            ],
+            "Default": "Delete Change Set",
+            "Type": "Choice"
+        },
+        "Stack Created?": {
+            "Choices": [
+                {
+                    "Next": "Deployment Succeeded",
+                    "StringEquals": "complete",
+                    "Variable": "$.stackCreationStatus"
+                }
+            ],
+            "Default": "Wait Stack Creation",
+            "Type": "Choice"
+        },
+        "Wait Change Set Creation": {
+            "Next": "Get Change Set Creation Status",
+            "Seconds": 10,
+            "Type": "Wait"
+        },
+        "Wait Stack Creation": {
+            "Next": "Get Stack Creation Status",
+            "Seconds": 10,
+            "Type": "Wait"
+        }
+    }
+}

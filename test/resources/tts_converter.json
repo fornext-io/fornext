@@ -1,0 +1,69 @@
+{
+    "Comment": "Text to Speech using AWS Polly",
+    "StartAt": "GetTextFile",
+    "States": {
+        "Failed": {
+            "Cause": "transcription job failed",
+            "Error": "FAILED",
+            "Type": "Fail"
+        },
+        "GetSpeechSynthesisTask": {
+            "Next": "SpeechSynthesisTaskStatus",
+            "Parameters": {
+                "TaskId.$": "$.SynthesisTask.TaskId"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:polly:getSpeechSynthesisTask",
+            "Type": "Task"
+        },
+        "GetTextFile": {
+            "Next": "StartSpeechSynthesisTask",
+            "Parameters": {
+                "Bucket.$": "$.detail.bucket.name",
+                "Key.$": "$.detail.object.key"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+            "ResultSelector": {
+                "filecontent.$": "$.Body"
+            },
+            "Type": "Task"
+        },
+        "SpeechSynthesisTaskStatus": {
+            "Choices": [
+                {
+                    "Next": "Success",
+                    "StringEquals": "completed",
+                    "Variable": "$.TaskStatus"
+                },
+                {
+                    "Next": "Failed",
+                    "StringEquals": "failed",
+                    "Variable": "$.TaskStatus"
+                }
+            ],
+            "Default": "Wait",
+            "Type": "Choice"
+        },
+        "StartSpeechSynthesisTask": {
+            "Next": "Wait",
+            "Parameters": {
+                "OutputFormat": "mp3",
+                "OutputS3BucketName": "bucket-776177632559-us-east-1-transcript-results",
+                "OutputS3KeyPrefix": "audio",
+                "Text.$": "$.filecontent",
+                "TextType": "text",
+                "VoiceId": "Amy"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:polly:startSpeechSynthesisTask",
+            "Type": "Task"
+        },
+        "Success": {
+            "Type": "Succeed"
+        },
+        "Wait": {
+            "Next": "GetSpeechSynthesisTask",
+            "Seconds": 10,
+            "Type": "Wait"
+        }
+    },
+    "TimeoutSeconds": 900
+}

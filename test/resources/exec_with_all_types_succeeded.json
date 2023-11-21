@@ -1,0 +1,96 @@
+{
+    "Comment": "A executable state machine with all types and succeeded",
+    "StartAt": "RunWait",
+    "States": {
+        "RunWait": {
+            "Type": "Wait",
+            "Comment": "Wait",
+            "Next": "RunPass",
+            "Seconds": 5
+        },
+        "RunPass": {
+            "Type": "Pass",
+            "Comment": "Pass",
+            "Next": "RunChoice"
+        },
+        "RunChoice": {
+            "Type": "Choice",
+            "Comment": "Choice",
+            "Default": "RunTask"
+        },
+        "RunTask": {
+            "Type": "Task",
+            "Comment": "Task",
+            "Resource": "RunTask",
+            "Next": "RunMap"
+        },
+        "RunMap": {
+            "Type": "Map",
+            "Comment": "Map",
+            "Next": "RunParallel",
+            "MaxConcurrency": 2,
+            "Iterator": {
+                "StartAt": "MapRunWait",
+                "States": {
+                    "MapRunWait": {
+                        "Type": "Wait",
+                        "Comment": "MapRunWait",
+                        "Next": "MapRunTask",
+                        "Seconds": 5
+                    },
+                    "MapRunTask": {
+                        "Type": "Task",
+                        "Comment": "MapRunTask",
+                        "Resource": "MapRunTask",
+                        "End": true
+                    }
+                }
+            }
+        },
+        "RunParallel": {
+            "Type": "Parallel",
+            "Comment": "Parallel",
+            "Next": "RunSucceed",
+            "Branches": [
+                {
+                    "StartAt": "ParallelRunWait",
+                    "States": {
+                        "ParallelRunWait": {
+                            "Type": "Wait",
+                            "Comment": "ParallelRunWait",
+                            "Next": "ParallelRunTask",
+                            "Seconds": 5
+                        },
+                        "ParallelRunTask": {
+                            "Type": "Task",
+                            "Comment": "ParallelRunTask",
+                            "Resource": "ParallelRunTask",
+                            "End": true
+                        }
+                    }
+                },
+                {
+                    "StartAt": "ParallelRunWait2",
+                    "States": {
+                        "ParallelRunWait2": {
+                            "Type": "Wait",
+                            "Comment": "ParallelRunWait2",
+                            "Next": "ParallelRunTask2",
+                            "Seconds": 5
+                        },
+                        "ParallelRunTask2": {
+                            "Type": "Task",
+                            "Comment": "ParallelRunTask2",
+                            "Resource": "ParallelRunTask2",
+                            "End": true
+                        }
+                    }
+                }
+            ]
+        },
+        "RunSucceed": {
+            "Type": "Succeed",
+            "Comment": "Succeed"
+        }
+    }
+}

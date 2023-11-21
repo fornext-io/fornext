@@ -1,0 +1,86 @@
+{
+    "Comment": "A State Machine that processes a video file",
+    "StartAt": "GetSampleVideo",
+    "States": {
+        "CheckIfTranscriptionDone": {
+            "Next": "IsTranscriptionDone?",
+            "Parameters": {
+                "TranscriptionJobName.$": "$.TranscriptionJobName"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:transcribe:getTranscriptionJob",
+            "Type": "Task"
+        },
+        "GetSampleVideo": {
+            "Next": "StartTranscriptionJob",
+            "Parameters": {
+                "Bucket": "${S3BucketName}",
+                "CopySource.$": "States.Format('{}/{}',$.SampleDataBucketName,$.SampleDataInputKey)",
+                "Key.$": "$.SampleDataInputKey"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:s3:copyObject",
+            "ResultPath": null,
+            "Type": "Task"
+        },
+        "GetTranscriptionText": {
+            "Next": "PrepareTranscriptTest",
+            "Parameters": {
+                "Bucket": "${S3BucketName}",
+                "Key": "transcribe.json"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:s3:getObject",
+            "ResultSelector": {
+                "filecontent.$": "States.StringToJson($.Body)"
+            },
+            "Type": "Task"
+        },
+        "IsTranscriptionDone?": {
+            "Choices": [
+                {
+                    "Next": "GetTranscriptionText",
+                    "StringEquals": "COMPLETED",
+                    "Variable": "$.TranscriptionJob.TranscriptionJobStatus"
+                }
+            ],
+            "Default": "Wait20Seconds",
+            "Type": "Choice"
+        },
+        "PrepareTranscriptTest": {
+            "Next": "StartTextTranslation",
+            "Parameters": {
+                "transcript.$": "$.filecontent.results.transcripts[0].transcript"
+            },
+            "Type": "Pass"
+        },
+        "StartTextTranslation": {
+            "End": true,
+            "Parameters": {
+                "SourceLanguageCode": "en",
+                "TargetLanguageCode": "es",
+                "Text.$": "$.transcript"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:translate:translateText",
+            "ResultPath": "$.translate",
+            "Type": "Task"
+        },
+        "StartTranscriptionJob": {
+            "Next": "Wait20Seconds",
+            "Parameters": {
+                "LanguageCode": "en-US",
+                "Media": {
+                    "MediaFileUri.$": "States.Format('s3://${S3BucketName}/{}',$.SampleDataInputKey)"
+                },
+                "OutputBucketName": "${S3BucketName}",
+                "OutputKey": "transcribe.json",
+                "TranscriptionJobName.$": "$$.Execution.Name"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:transcribe:startTranscriptionJob",
+            "Type": "Task"
+        },
+        "Wait20Seconds": {
+            "Next": "CheckIfTranscriptionDone",
+            "OutputPath": "$.TranscriptionJob",
+            "Seconds": 20,
+            "Type": "Wait"
+        }
+    }
+}

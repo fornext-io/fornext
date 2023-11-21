@@ -1,0 +1,68 @@
+{
+    "StartAt": "Start Athena Query",
+    "States": {
+        "Done": {
+            "Type": "Succeed"
+        },
+        "Get Query Results": {
+            "Next": "Map State",
+            "Parameters": {
+                "QueryExecutionId.$": "$.QueryExecution.QueryExecutionId"
+            },
+            "Resource": "arn:aws:states:::athena:getQueryResults",
+            "ResultPath": "$.GetQueryResults",
+            "Type": "Task"
+        },
+        "Has More Results?": {
+            "Choices": [
+                {
+                    "IsPresent": true,
+                    "Next": "Prepare Next Query Params",
+                    "Variable": "$.GetQueryResults.NextToken"
+                }
+            ],
+            "Default": "Done",
+            "Type": "Choice"
+        },
+        "Map State": {
+            "InputPath": "$.GetQueryResults.ResultSet.Rows[1:]",
+            "Iterator": {
+                "StartAt": "DoSomething",
+                "States": {
+                    "DoSomething": {
+                        "End": true,
+                        "Type": "Pass"
+                    }
+                }
+            },
+            "MaxConcurrency": 1,
+            "Next": "Has More Results?",
+            "ResultPath": null,
+            "Type": "Map"
+        },
+        "Prepare Next Query Params": {
+            "Next": "Get Query Results",
+            "Parameters": {
+                "NextToken.$": "$.GetQueryResults.NextToken",
+                "QueryExecutionId.$": "$.StartQueryParams.QueryExecutionId"
+            },
+            "ResultPath": "$.StartQueryParams",
+            "Type": "Pass"
+        },
+        "Start Athena Query": {
+            "Next": "Get Query Results",
+            "Parameters": {
+                "QueryExecutionContext": {
+                    "Database": "serverlessland_database"
+                },
+                "QueryString": "SELECT uri FROM cf_access_logs limit 10",
+                "ResultConfiguration": {
+                    "OutputLocation": "s3://sfnathenacdkpythonstack-athenaresultsbucket879938-kofgclbeydzu/results/"
+                }
+            },
+            "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+            "Type": "Task"
+        }
+    },
+    "TimeoutSeconds": 3600
+}

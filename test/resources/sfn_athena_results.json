@@ -1,0 +1,79 @@
+{
+    "StartAt": "Start Athena Query",
+    "States": {
+        "Fail": {
+            "Type": "Fail"
+        },
+        "Get query result": {
+            "Next": "Has query finished?",
+            "Parameters": {
+                "QueryExecutionId.$": "$.QueryExecutionId"
+            },
+            "Resource": "arn:aws:states:::athena:getQueryExecution",
+            "Type": "Task"
+        },
+        "Has query finished?": {
+            "Choices": [
+                {
+                    "Next": "Process results",
+                    "StringEquals": "SUCCEEDED",
+                    "Variable": "$.QueryExecution.Status.State"
+                },
+                {
+                    "Next": "Fail",
+                    "StringEquals": "FAILED",
+                    "Variable": "$.QueryExecution.Status.State"
+                },
+                {
+                    "Next": "Fail",
+                    "StringEquals": "CANCELLED",
+                    "Variable": "$.QueryExecution.Status.State"
+                }
+            ],
+            "Default": "Wait",
+            "Type": "Choice"
+        },
+        "Process results": {
+            "End": true,
+            "Parameters": {
+                "FunctionName": "${ProcessResultsFunctionArn}",
+                "Payload": {
+                    "resultLocation.$": "$.QueryExecution.ResultConfiguration.OutputLocation"
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "Type": "Task"
+        },
+        "Start Athena Query": {
+            "Next": "Get query result",
+            "Parameters": {
+                "QueryExecutionContext": {
+                    "Database.$": "$.Database"
+                },
+                "QueryString.$": "States.Format('SELECT * FROM \"{}\" LIMIT 10', $.Table)",
+                "ResultConfiguration": {},
+                "WorkGroup.$": "$.Workgroup"
+            },
+            "Resource": "arn:aws:states:::athena:startQueryExecution",
+            "Type": "Task"
+        },
+        "Wait": {
+            "Next": "Get query result",
+            "OutputPath": "$.QueryExecution",
+            "Seconds": 5,
+            "Type": "Wait"
+        }
+    }
+}

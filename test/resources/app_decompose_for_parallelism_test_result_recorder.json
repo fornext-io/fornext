@@ -1,0 +1,229 @@
+{
+    "Comment": "A statemachine to record the results of a test",
+    "StartAt": "HandleInput",
+    "States": {
+        "ClearResults": {
+            "End": true,
+            "Result": "Done",
+            "Type": "Pass"
+        },
+        "ConfirmRequiredData": {
+            "Choices": [
+                {
+                    "And": [
+                        {
+                            "IsPresent": true,
+                            "Variable": "$.processedtestresults.Payload.TestStatus"
+                        },
+                        {
+                            "Not": {
+                                "StringEquals": "",
+                                "Variable": "$.processedtestresults.Payload.TestStatus"
+                            }
+                        },
+                        {
+                            "IsPresent": true,
+                            "Variable": "$.processedtestresults.Payload.TestName"
+                        },
+                        {
+                            "Not": {
+                                "StringEquals": "",
+                                "Variable": "$.processedtestresults.Payload.TestName"
+                            }
+                        },
+                        {
+                            "IsPresent": true,
+                            "Variable": "$.processedtestresults.Payload.TestDurationMs"
+                        },
+                        {
+                            "Not": {
+                                "StringEquals": "",
+                                "Variable": "$.processedtestresults.Payload.TestDurationMs"
+                            }
+                        },
+                        {
+                            "IsPresent": true,
+                            "Variable": "$.processedtestresults.Payload.TestSuccessMetricValue"
+                        },
+                        {
+                            "IsNumeric": true,
+                            "Variable": "$.processedtestresults.Payload.TestSuccessMetricValue"
+                        }
+                    ],
+                    "Next": "WasSuccessOrFailure"
+                }
+            ],
+            "Default": "InvalidInput",
+            "Type": "Choice"
+        },
+        "HandleInput": {
+            "Next": "ConfirmRequiredData",
+            "Parameters": {
+                "FunctionName": "${LambdaGetTestResultsFromSfnStatus}",
+                "Payload.$": "$"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.processedtestresults",
+            "ResultSelector": {
+                "Payload.$": "$.Payload"
+            },
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "MaxAttempts": 15
+                }
+            ],
+            "TimeoutSeconds": 305,
+            "Type": "Task"
+        },
+        "InvalidInput": {
+            "Cause": "Missing required data from test results",
+            "Error": "InvalidResults",
+            "Type": "Fail"
+        },
+        "RecordTestRun-DurationMetric": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "RecordTestRun-StatusMetric",
+                    "ResultPath": "$.errors.duration_metric"
+                }
+            ],
+            "Next": "RecordTestRun-StatusMetric",
+            "Parameters": {
+                "FunctionName": "${LambdaRecordMetricDataFunction}",
+                "Payload": {
+                    "Input": {
+                        "Dimensions": [
+                            {
+                                "Name": "TestName",
+                                "Value.$": "$.processedtestresults.Payload.TestName"
+                            }
+                        ],
+                        "MetricName": "TestDuration",
+                        "Namespace": "${ParameterInstancePrefix}",
+                        "Unit": "Milliseconds",
+                        "Value.$": "$.processedtestresults.Payload.TestDurationMs"
+                    }
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.metricresults",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "MaxAttempts": 3
+                }
+            ],
+            "TimeoutSeconds": 305,
+            "Type": "Task"
+        },
+        "RecordTestRun-DynamoDB": {
+            "Next": "ClearResults",
+            "Parameters": {
+                "Item": {
+                    "TestDurationMs": {
+                        "N.$": "$.processedtestresults.Payload.TestDurationMs"
+                    },
+                    "TestEndTimeEpoch": {
+                        "N.$": "$.processedtestresults.Payload.TestEndTimeEpoch"
+                    },
+                    "TestId": {
+                        "S.$": "$.processedtestresults.Payload.Iteration"
+                    },
+                    "TestName": {
+                        "S.$": "$.processedtestresults.Payload.TestName"
+                    },
+                    "TestRunId": {
+                        "S.$": "$.processedtestresults.Payload.test-run-id"
+                    },
+                    "TestStartTimeEpoch": {
+                        "N.$": "$.processedtestresults.Payload.TestStartTimeEpoch"
+                    },
+                    "TestStatus": {
+                        "S.$": "$.processedtestresults.Payload.TestStatus"
+                    }
+                },
+                "TableName": "${TableTestResults}"
+            },
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "ResultPath": "$.ddbputresult",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "MaxAttempts": 15
+                }
+            ],
+            "TimeoutSeconds": 305,
+            "Type": "Task"
+        },
+        "RecordTestRun-StatusMetric": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "RecordTestRun-DynamoDB",
+                    "ResultPath": "$.errors.status_metric"
+                }
+            ],
+            "Next": "RecordTestRun-DynamoDB",
+            "Parameters": {
+                "FunctionName": "${LambdaRecordMetricDataFunction}",
+                "Payload": {
+                    "Input": {
+                        "Dimensions": [
+                            {
+                                "Name": "TestName",
+                                "Value.$": "$.processedtestresults.Payload.TestName"
+                            }
+                        ],
+                        "MetricName": "TestSuccess",
+                        "Namespace": "${ParameterInstancePrefix}",
+                        "Unit": "None",
+                        "Value.$": "$.processedtestresults.Payload.TestSuccessMetricValue"
+                    }
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.metricresults",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "MaxAttempts": 3
+                }
+            ],
+            "TimeoutSeconds": 305,
+            "Type": "Task"
+        },
+        "WasSuccessOrFailure": {
+            "Choices": [
+                {
+                    "And": [
+                        {
+                            "StringEquals": "SUCCEEDED",
+                            "Variable": "$.processedtestresults.Payload.TestStatus"
+                        }
+                    ],
+                    "Next": "RecordTestRun-DurationMetric"
+                }
+            ],
+            "Default": "RecordTestRun-StatusMetric",
+            "Type": "Choice"
+        }
+    }
+}

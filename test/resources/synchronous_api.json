@@ -1,0 +1,64 @@
+{
+    "Comment": "An example of the Amazon States Language for starting a task and waiting for a callback.",
+    "StartAt": "ParallelState",
+    "States": {
+        "ParallelState": {
+            "Branches": [
+                {
+                    "StartAt": "sumFunction",
+                    "States": {
+                        "sumFunction": {
+                            "End": true,
+                            "Parameters": {
+                                "FunctionName": "${sumFunction}",
+                                "Payload.$": "$"
+                            },
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "ResultSelector": {
+                                "sum.$": "$.Payload.sum"
+                            },
+                            "Type": "Task"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "AvgFunction",
+                    "States": {
+                        "AvgFunction": {
+                            "End": true,
+                            "Parameters": {
+                                "FunctionName": "${AvgFunction}",
+                                "Payload.$": "$"
+                            },
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "ResultSelector": {
+                                "avg.$": "$.Payload.avg"
+                            },
+                            "Type": "Task"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "MaxMinFunction",
+                    "States": {
+                        "MaxMinFunction": {
+                            "End": true,
+                            "Parameters": {
+                                "FunctionName": "${MaxMinFunction}",
+                                "Payload.$": "$"
+                            },
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "ResultSelector": {
+                                "max.$": "$.Payload.max",
+                                "min.$": "$.Payload.min"
+                            },
+                            "Type": "Task"
+                        }
+                    }
+                }
+            ],
+            "End": true,
+            "Type": "Parallel"
+        }
+    }
+}

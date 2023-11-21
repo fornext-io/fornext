@@ -1,0 +1,13 @@
+{
+    "StartAt": "p",
+    "States": {
+        "p": {
+            "End": true,
+            "Resource": "foo:bar",
+            "ResultSelector": {
+                "abc.$": "States.StringToJson($.result)"
+            },
+            "Type": "Task"
+        }
+    }
+}

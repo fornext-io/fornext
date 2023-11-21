@@ -1,0 +1,181 @@
+{
+    "Comment": "A statemachine for running the main loop of tests ",
+    "StartAt": "ProcessPayload",
+    "States": {
+        "ProcessPayload": {
+            "Next": "RecurseIfRequired",
+            "OutputPath": "$.Payload",
+            "Parameters": {
+                "FunctionName": "${FunctionSplitIfRequired}",
+                "Payload.$": "$"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultSelector": {
+                "Payload.$": "$.Payload"
+            },
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "MaxAttempts": 15
+                }
+            ],
+            "Type": "Task"
+        },
+        "RecurseIfRequired": {
+            "Choices": [
+                {
+                    "And": [
+                        {
+                            "IsPresent": true,
+                            "Variable": "$.test-batches"
+                        }
+                    ],
+                    "Next": "RecurseToMoreDistributors"
+                }
+            ],
+            "Default": "RunTests",
+            "Type": "Choice"
+        },
+        "RecurseToMoreDistributors": {
+            "End": true,
+            "ItemsPath": "$.test-batches",
+            "Iterator": {
+                "StartAt": "Recurse",
+                "States": {
+                    "Recurse": {
+                        "End": true,
+                        "Parameters": {
+                            "Input": {
+                                "AWS_STEP_FUNCTIONS_STARTED_BY_EXECUTION_ID.$": "$$.Execution.Id",
+                                "test-run-id.$": "$.test-run-id",
+                                "tests-to-run.$": "$.test-batch.tests-to-run"
+                            },
+                            "Name.$": "States.Format('{}_{}',$$.Execution.Name,$['test-batch']['batch_id'])",
+                            "StateMachineArn.$": "$$.StateMachine.Id"
+                        },
+                        "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                        "ResultSelector": {
+                            "ExecName.$": "$$.Execution.Name"
+                        },
+                        "Retry": [
+                            {
+                                "BackoffRate": 5,
+                                "ErrorEquals": [
+                                    "StepFunctions.ExecutionAlreadyExistsException"
+                                ],
+                                "IntervalSeconds": 1,
+                                "MaxAttempts": 1
+                            },
+                            {
+                                "BackoffRate": 5,
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "MaxAttempts": 5
+                            }
+                        ],
+                        "Type": "Task"
+                    }
+                }
+            },
+            "Parameters": {
+                "test-batch.$": "$$.Map.Item.Value",
+                "test-run-id.$": "$.test-run-id"
+            },
+            "Type": "Map"
+        },
+        "RunTests": {
+            "End": true,
+            "ItemsPath": "$.tests-to-run",
+            "Iterator": {
+                "StartAt": "RunTestStateMachine",
+                "States": {
+                    "RecordResults": {
+                        "End": true,
+                        "Parameters": {
+                            "Input.$": "$.testresults",
+                            "Name.$": "States.Format('{}_test{}',$$.Execution.Name,$['test-data']['test-number'])",
+                            "StateMachineArn": "${StateMachineTestResultRecorder}"
+                        },
+                        "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                        "ResultSelector": {
+                            "ExecName.$": "$$.Execution.Name"
+                        },
+                        "Retry": [
+                            {
+                                "BackoffRate": 5,
+                                "ErrorEquals": [
+                                    "StepFunctions.ExecutionAlreadyExistsException"
+                                ],
+                                "IntervalSeconds": 1,
+                                "MaxAttempts": 1
+                            },
+                            {
+                                "BackoffRate": 2,
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "MaxAttempts": 10
+                            }
+                        ],
+                        "TimeoutSeconds": 65,
+                        "Type": "Task"
+                    },
+                    "RunTestStateMachine": {
+                        "Catch": [
+                            {
+                                "ErrorEquals": [
+                                    "States.TaskFailed"
+                                ],
+                                "Next": "RecordResults",
+                                "ResultPath": "$.testresults"
+                            }
+                        ],
+                        "Next": "RecordResults",
+                        "Parameters": {
+                            "Input": {
+                                "AWS_STEP_FUNCTIONS_STARTED_BY_EXECUTION_ID.$": "$$.Execution.Id",
+                                "test-input.$": "$.test-data.test-input",
+                                "test-number.$": "$.test-data.test-number",
+                                "test-run-id.$": "$.test-run-id"
+                            },
+                            "Name.$": "States.Format('{}_test{}',$$.Execution.Name,$['test-data']['test-number'])",
+                            "StateMachineArn": "${StateMachineTestSimplewait}"
+                        },
+                        "Resource": "arn:aws:states:::states:startExecution.sync:2",
+                        "ResultPath": "$.testresults",
+                        "Retry": [
+                            {
+                                "ErrorEquals": [
+                                    "StepFunctions.ExecutionAlreadyExistsException"
+                                ],
+                                "MaxAttempts": 0
+                            },
+                            {
+                                "BackoffRate": 2,
+                                "ErrorEquals": [
+                                    "States.ALL"
+                                ],
+                                "IntervalSeconds": 1,
+                                "MaxAttempts": 5
+                            }
+                        ],
+                        "TimeoutSeconds": 65,
+                        "Type": "Task"
+                    }
+                }
+            },
+            "MaxConcurrency": 0,
+            "Parameters": {
+                "test-data.$": "$$.Map.Item.Value",
+                "test-run-id.$": "$.test-run-id"
+            },
+            "Type": "Map"
+        }
+    }
+}

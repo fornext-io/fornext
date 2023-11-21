@@ -1,0 +1,31 @@
+{
+    "StartAt": "Get Order Metadata",
+    "States": {
+        "Get Order Metadata": {
+            "Next": "Shipping Service Callback",
+            "Resource": "${GetOrderMetadataFunction.Arn}",
+            "ResultPath": "$.order_contents",
+            "Type": "Task"
+        },
+        "Process Shipping Results": {
+            "End": true,
+            "Resource": "${ProcessShippingResultFunction.Arn}",
+            "ResultPath": "$",
+            "Type": "Task"
+        },
+        "Shipping Service Callback": {
+            "Next": "Process Shipping Results",
+            "Parameters": {
+                "FunctionName": "${SNSCallbackFunction.Arn}",
+                "Payload": {
+                    "callback": "true",
+                    "input.$": "$",
+                    "token.$": "$$.Task.Token"
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+            "ResultPath": "$.shipping_info",
+            "Type": "Task"
+        }
+    }
+}

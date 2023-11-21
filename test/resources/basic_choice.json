@@ -1,0 +1,54 @@
+{
+    "Comment": "Adds some coordinates to the input",
+    "StartAt": "ChoiceStateX",
+    "States": {
+        "ChoiceStateX": {
+            "Choices": [
+                {
+                    "Next": "Public",
+                    "Not": {
+                        "StringEquals": "Private",
+                        "Variable": "$.type"
+                    }
+                },
+                {
+                    "Next": "ValueIsZero",
+                    "NumericEquals": 0,
+                    "Variable": "$.value"
+                },
+                {
+                    "And": [
+                        {
+                            "NumericGreaterThanEquals": 20,
+                            "Variable": "$.value"
+                        },
+                        {
+                            "NumericLessThan": 30,
+                            "Variable": "$.value"
+                        }
+                    ],
+                    "Next": "ValueInTwenties"
+                }
+            ],
+            "Default": "DefaultState",
+            "Type": "Choice"
+        },
+        "DefaultState": {
+            "Cause": "No Matches!",
+            "Error": "ERROR",
+            "Type": "Fail"
+        },
+        "Public": {
+            "Next": "NextState",
+            "Type": "Pass"
+        },
+        "ValueInTwenties": {
+            "Next": "NextState",
+            "Type": "Pass"
+        },
+        "ValueIsZero": {
+            "Next": "NextState",
+            "Type": "Pass"
+        }
+    }
+}

@@ -1,0 +1,506 @@
+{
+    "StartAt": "Parallel",
+    "States": {
+        "Parallel": {
+            "Branches": [
+                {
+                    "StartAt": "Daily User - Years",
+                    "States": {
+                        "Daily User - Per Year": {
+                            "End": true,
+                            "Iterator": {
+                                "StartAt": "Daily User - Months",
+                                "States": {
+                                    "Daily User - Months": {
+                                        "Next": "Daily User - Per Month",
+                                        "Parameters": {
+                                            "months": [
+                                                "01",
+                                                "02",
+                                                "03",
+                                                "04",
+                                                "05",
+                                                "06",
+                                                "07",
+                                                "08",
+                                                "09",
+                                                "10",
+                                                "11",
+                                                "12"
+                                            ],
+                                            "year.$": "$.year"
+                                        },
+                                        "Type": "Pass"
+                                    },
+                                    "Daily User - Per Month": {
+                                        "End": true,
+                                        "ItemsPath": "$.months",
+                                        "Iterator": {
+                                            "StartAt": "Daily User - Generate Days",
+                                            "States": {
+                                                "Daily User - Generate Days": {
+                                                    "Next": "Daily User - Per Day",
+                                                    "Parameters": {
+                                                        "days": [
+                                                            "01",
+                                                            "02",
+                                                            "03",
+                                                            "04",
+                                                            "05",
+                                                            "06",
+                                                            "07",
+                                                            "08",
+                                                            "09",
+                                                            "10",
+                                                            "11",
+                                                            "12",
+                                                            "13",
+                                                            "14",
+                                                            "15",
+                                                            "16",
+                                                            "17",
+                                                            "18",
+                                                            "19",
+                                                            "20",
+                                                            "21",
+                                                            "22",
+                                                            "23",
+                                                            "24",
+                                                            "25",
+                                                            "26",
+                                                            "27"
+                                                        ],
+                                                        "month.$": "$.month",
+                                                        "year.$": "$.year"
+                                                    },
+                                                    "Type": "Pass"
+                                                },
+                                                "Daily User - Per Day": {
+                                                    "End": true,
+                                                    "ItemsPath": "$.days",
+                                                    "Iterator": {
+                                                        "StartAt": "Daily User - Generate User Data",
+                                                        "States": {
+                                                            "Daily User - Create File Per User": {
+                                                                "End": true,
+                                                                "ItemsPath": "$.users",
+                                                                "Iterator": {
+                                                                    "StartAt": "Daily User - Create Json File Per User",
+                                                                    "States": {
+                                                                        "Daily User - Create Json File Per User": {
+                                                                            "End": true,
+                                                                            "Parameters": {
+                                                                                "Body.$": "$.user",
+                                                                                "Bucket": "${bucket-name}",
+                                                                                "Key.$": "States.Format('data/daily-user-summaries/year={}/month={}/date={}-{}-{}/{}-{}-{}_{}.json',$.year,$.month,$.year,$.month,$.day,$.year,$.month,$.day,$.user.user)"
+                                                                            },
+                                                                            "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+                                                                            "ResultPath": null,
+                                                                            "Retry": [
+                                                                                {
+                                                                                    "BackoffRate": 1.5,
+                                                                                    "ErrorEquals": [
+                                                                                        "States.ALL"
+                                                                                    ],
+                                                                                    "IntervalSeconds": 1,
+                                                                                    "MaxAttempts": 3
+                                                                                }
+                                                                            ],
+                                                                            "Type": "Task"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "Parameters": {
+                                                                    "day.$": "$.day",
+                                                                    "month.$": "$.month",
+                                                                    "user.$": "$$.Map.Item.Value",
+                                                                    "year.$": "$.year"
+                                                                },
+                                                                "ResultPath": null,
+                                                                "Type": "Map"
+                                                            },
+                                                            "Daily User - Generate User Data": {
+                                                                "Next": "Daily User - Create File Per User",
+                                                                "Result": [
+                                                                    {
+                                                                        "usage": 672,
+                                                                        "user": "user-00000000001"
+                                                                    },
+                                                                    {
+                                                                        "usage": 25,
+                                                                        "user": "user-00000000002"
+                                                                    },
+                                                                    {
+                                                                        "usage": 32,
+                                                                        "user": "user-00000000003"
+                                                                    },
+                                                                    {
+                                                                        "usage": 1,
+                                                                        "user": "user-00000000004"
+                                                                    },
+                                                                    {
+                                                                        "usage": 0,
+                                                                        "user": "user-00000000005"
+                                                                    },
+                                                                    {
+                                                                        "usage": 500,
+                                                                        "user": "user-00000000006"
+                                                                    },
+                                                                    {
+                                                                        "usage": 7000,
+                                                                        "user": "user-00000000007"
+                                                                    },
+                                                                    {
+                                                                        "usage": 13,
+                                                                        "user": "user-00000000008"
+                                                                    },
+                                                                    {
+                                                                        "usage": 12,
+                                                                        "user": "user-00000000009"
+                                                                    },
+                                                                    {
+                                                                        "usage": 120,
+                                                                        "user": "user-00000000010"
+                                                                    },
+                                                                    {
+                                                                        "usage": 5,
+                                                                        "user": "user-00000000011"
+                                                                    }
+                                                                ],
+                                                                "ResultPath": "$.users",
+                                                                "Type": "Pass"
+                                                            }
+                                                        }
+                                                    },
+                                                    "Parameters": {
+                                                        "day.$": "$$.Map.Item.Value",
+                                                        "month.$": "$.month",
+                                                        "year.$": "$.year"
+                                                    },
+                                                    "ResultPath": null,
+                                                    "Type": "Map"
+                                                }
+                                            }
+                                        },
+                                        "MaxConcurrency": 1,
+                                        "Parameters": {
+                                            "month.$": "$$.Map.Item.Value",
+                                            "year.$": "$.year"
+                                        },
+                                        "ResultPath": null,
+                                        "Type": "Map"
+                                    }
+                                }
+                            },
+                            "MaxConcurrency": 1,
+                            "Parameters": {
+                                "year.$": "$$.Map.Item.Value"
+                            },
+                            "ResultPath": null,
+                            "Type": "Map"
+                        },
+                        "Daily User - Years": {
+                            "Next": "Daily User - Per Year",
+                            "Result": [
+                                "2016",
+                                "2017",
+                                "2018",
+                                "2019",
+                                "2020",
+                                "2021"
+                            ],
+                            "Type": "Pass"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Locations - Years",
+                    "States": {
+                        "Locations - Per Year": {
+                            "End": true,
+                            "Iterator": {
+                                "StartAt": "Locations - Months",
+                                "States": {
+                                    "Locations - Months": {
+                                        "Next": "Locations - Per Month",
+                                        "Parameters": {
+                                            "months": [
+                                                "01",
+                                                "02",
+                                                "03",
+                                                "04",
+                                                "05",
+                                                "06",
+                                                "07",
+                                                "08",
+                                                "09",
+                                                "10",
+                                                "11",
+                                                "12"
+                                            ],
+                                            "year.$": "$.year"
+                                        },
+                                        "Type": "Pass"
+                                    },
+                                    "Locations - Per Month": {
+                                        "End": true,
+                                        "ItemsPath": "$.months",
+                                        "Iterator": {
+                                            "StartAt": "Locations - Generate Days",
+                                            "States": {
+                                                "Locations - Generate Days": {
+                                                    "Next": "Locations - Per Day",
+                                                    "Parameters": {
+                                                        "days": [
+                                                            "01",
+                                                            "02",
+                                                            "03",
+                                                            "04",
+                                                            "05",
+                                                            "06",
+                                                            "07",
+                                                            "08",
+                                                            "09",
+                                                            "10",
+                                                            "11",
+                                                            "12",
+                                                            "13",
+                                                            "14",
+                                                            "15",
+                                                            "16",
+                                                            "17",
+                                                            "18",
+                                                            "19",
+                                                            "20",
+                                                            "21",
+                                                            "22",
+                                                            "23",
+                                                            "24",
+                                                            "25",
+                                                            "26",
+                                                            "27"
+                                                        ],
+                                                        "month.$": "$.month",
+                                                        "year.$": "$.year"
+                                                    },
+                                                    "Type": "Pass"
+                                                },
+                                                "Locations - Per Day": {
+                                                    "End": true,
+                                                    "ItemsPath": "$.days",
+                                                    "Iterator": {
+                                                        "StartAt": "Locations - Generate Location Data",
+                                                        "States": {
+                                                            "Locations - Create File Per User": {
+                                                                "End": true,
+                                                                "ItemsPath": "$.locations",
+                                                                "Iterator": {
+                                                                    "StartAt": "Locations - Create Json File Per Location",
+                                                                    "States": {
+                                                                        "Locations - Create Json File Per Location": {
+                                                                            "End": true,
+                                                                            "Parameters": {
+                                                                                "Body.$": "$.location",
+                                                                                "Bucket": "${bucket-name}",
+                                                                                "Key.$": "States.Format('data/daily-location-summaries/year={}/month={}/date={}-{}-{}/{}-{}-{}_{}.json',$.year,$.month,$.year,$.month,$.day,$.year,$.month,$.day,$.location.name)"
+                                                                            },
+                                                                            "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+                                                                            "ResultPath": null,
+                                                                            "Retry": [
+                                                                                {
+                                                                                    "BackoffRate": 1.5,
+                                                                                    "ErrorEquals": [
+                                                                                        "States.ALL"
+                                                                                    ],
+                                                                                    "IntervalSeconds": 1,
+                                                                                    "MaxAttempts": 3
+                                                                                }
+                                                                            ],
+                                                                            "Type": "Task"
+                                                                        }
+                                                                    }
+                                                                },
+                                                                "Parameters": {
+                                                                    "day.$": "$.day",
+                                                                    "location.$": "$$.Map.Item.Value",
+                                                                    "month.$": "$.month",
+                                                                    "year.$": "$.year"
+                                                                },
+                                                                "ResultPath": null,
+                                                                "Type": "Map"
+                                                            },
+                                                            "Locations - Generate Location Data": {
+                                                                "Next": "Locations - Create File Per User",
+                                                                "Result": [
+                                                                    {
+                                                                        "name": "location-00000000001",
+                                                                        "state": "ny",
+                                                                        "total_usage": 24523,
+                                                                        "users": 75
+                                                                    },
+                                                                    {
+                                                                        "name": "location-00000000002",
+                                                                        "state": "nd",
+                                                                        "total_usage": 325,
+                                                                        "users": 6
+                                                                    },
+                                                                    {
+                                                                        "name": "location-00000000003",
+                                                                        "state": "ca",
+                                                                        "total_usage": 34897,
+                                                                        "users": 125
+                                                                    },
+                                                                    {
+                                                                        "name": "location-00000000004",
+                                                                        "state": "ny",
+                                                                        "total_usage": 5432,
+                                                                        "users": 35
+                                                                    },
+                                                                    {
+                                                                        "name": "location-00000000005",
+                                                                        "state": "ca",
+                                                                        "total_usage": 6421,
+                                                                        "users": 89
+                                                                    },
+                                                                    {
+                                                                        "name": "location-00000000006",
+                                                                        "state": "ct",
+                                                                        "total_usage": 625,
+                                                                        "users": 18
+                                                                    }
+                                                                ],
+                                                                "ResultPath": "$.locations",
+                                                                "Type": "Pass"
+                                                            }
+                                                        }
+                                                    },
+                                                    "Parameters": {
+                                                        "day.$": "$$.Map.Item.Value",
+                                                        "month.$": "$.month",
+                                                        "year.$": "$.year"
+                                                    },
+                                                    "ResultPath": null,
+                                                    "Type": "Map"
+                                                }
+                                            }
+                                        },
+                                        "MaxConcurrency": 1,
+                                        "Parameters": {
+                                            "month.$": "$$.Map.Item.Value",
+                                            "year.$": "$.year"
+                                        },
+                                        "ResultPath": null,
+                                        "Type": "Map"
+                                    }
+                                }
+                            },
+                            "MaxConcurrency": 1,
+                            "Parameters": {
+                                "year.$": "$$.Map.Item.Value"
+                            },
+                            "ResultPath": null,
+                            "Type": "Map"
+                        },
+                        "Locations - Years": {
+                            "Next": "Locations - Per Year",
+                            "Result": [
+                                "2016",
+                                "2017",
+                                "2018",
+                                "2019",
+                                "2020",
+                                "2021"
+                            ],
+                            "Type": "Pass"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Locations All Time - Generate Location Data",
+                    "States": {
+                        "Locations All Time - Create File Per Location": {
+                            "End": true,
+                            "ItemsPath": "$.locations",
+                            "Iterator": {
+                                "StartAt": "Locations All Time - Create Json File Per Location",
+                                "States": {
+                                    "Locations All Time - Create Json File Per Location": {
+                                        "End": true,
+                                        "Parameters": {
+                                            "Body.$": "$.location",
+                                            "Bucket": "${bucket-name}",
+                                            "Key.$": "States.Format('data/all-time-location-summaries/{}.json',$.location.name)"
+                                        },
+                                        "Resource": "arn:aws:states:::aws-sdk:s3:putObject",
+                                        "ResultPath": null,
+                                        "Retry": [
+                                            {
+                                                "BackoffRate": 1.5,
+                                                "ErrorEquals": [
+                                                    "States.ALL"
+                                                ],
+                                                "IntervalSeconds": 1,
+                                                "MaxAttempts": 3
+                                            }
+                                        ],
+                                        "Type": "Task"
+                                    }
+                                }
+                            },
+                            "Parameters": {
+                                "location.$": "$$.Map.Item.Value"
+                            },
+                            "ResultPath": null,
+                            "Type": "Map"
+                        },
+                        "Locations All Time - Generate Location Data": {
+                            "Next": "Locations All Time - Create File Per Location",
+                            "Result": [
+                                {
+                                    "name": "location-00000000001",
+                                    "state": "ny",
+                                    "total_usage": 32524523,
+                                    "users": 2375
+                                },
+                                {
+                                    "name": "location-00000000002",
+                                    "state": "nd",
+                                    "total_usage": 456325,
+                                    "users": 226
+                                },
+                                {
+                                    "name": "location-00000000003",
+                                    "state": "ca",
+                                    "total_usage": 24348967,
+                                    "users": 67125
+                                },
+                                {
+                                    "name": "location-00000000004",
+                                    "state": "ny",
+                                    "total_usage": 3154327,
+                                    "users": 2335
+                                },
+                                {
+                                    "name": "location-00000000005",
+                                    "state": "ca",
+                                    "total_usage": 5649021,
+                                    "users": 8932
+                                },
+                                {
+                                    "name": "location-00000000006",
+                                    "state": "ct",
+                                    "total_usage": 262543,
+                                    "users": 1284
+                                }
+                            ],
+                            "ResultPath": "$.locations",
+                            "Type": "Pass"
+                        }
+                    }
+                }
+            ],
+            "End": true,
+            "Type": "Parallel"
+        }
+    }
+}

@@ -1,0 +1,415 @@
+{
+    "Comment": "Create an EMR cluster with CFN, execute model from preprocessing, training, and prediction, and then destroy the cluster",
+    "StartAt": "Step 1 - Launch EMR cluster with CFN template",
+    "States": {
+        "Alert on failed CFN stack creation": {
+            "Next": "Pipeline failed",
+            "Parameters": {
+                "Message": "EMR cluster creation for Machine Learning pipeline failed. See events of the stack in CloudFormation console and then delete it.",
+                "MessageStructure": "text",
+                "Subject": "EMR cluster creation failed",
+                "TopicArn": "${MLPipelineAlertingSNSTopic}"
+            },
+            "Resource": "arn:aws:states:::sns:publish",
+            "Type": "Task"
+        },
+        "Alert on failed CFN stack deletion": {
+            "Next": "Pipeline failed",
+            "Parameters": {
+                "Message": "EMR cluster deletion for Machine Learning pipeline failed. Please investigate in Step Functions console.",
+                "MessageStructure": "text",
+                "Subject": "EMR cluster deletion failed",
+                "TopicArn": "${MLPipelineAlertingSNSTopic}"
+            },
+            "Resource": "arn:aws:states:::sns:publish",
+            "Type": "Task"
+        },
+        "Alert on failed step": {
+            "Next": "Mark failed step",
+            "Parameters": {
+                "Message": "EMR execution step in Machine Learning pipeline failed. See the error message in Step Functions console.",
+                "MessageStructure": "text",
+                "Subject": "EMR execution step failed",
+                "TopicArn": "${MLPipelineAlertingSNSTopic}"
+            },
+            "Resource": "arn:aws:states:::sns:publish",
+            "ResultPath": null,
+            "Type": "Task"
+        },
+        "Check for failed EMR step": {
+            "Choices": [
+                {
+                    "Next": "Pipeline completed succesfully",
+                    "StringEquals": "succeeded",
+                    "Variable": "$.Execution.Status"
+                },
+                {
+                    "Next": "Pipeline failed",
+                    "StringEquals": "failed",
+                    "Variable": "$.Execution.Status"
+                }
+            ],
+            "Default": "Pipeline completed succesfully",
+            "Type": "Choice"
+        },
+        "Delete EMR cluster": {
+            "Next": "Wait 1 minute for stack deletion",
+            "Parameters": {
+                "cfn_role": "${CloudFormationRole.Arn}",
+                "stack_id.$": "$.StackId"
+            },
+            "Resource": "${DeleteCFNStackLambda.Arn}",
+            "ResultPath": "$.StackId",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 3600,
+            "Type": "Task"
+        },
+        "Evaluate next processing mode": {
+            "Choices": [
+                {
+                    "Next": "Mark all steps success",
+                    "NumericEquals": 0,
+                    "Variable": "$.ProcessingModeLength"
+                }
+            ],
+            "Default": "Step 2 - Initiate preprocessing on the EMR cluster",
+            "Type": "Choice"
+        },
+        "Evaluate status of CFN stack creation": {
+            "Choices": [
+                {
+                    "Next": "Wait 1 minute for stack creation",
+                    "StringEquals": "CREATE_IN_PROGRESS",
+                    "Variable": "$.Status"
+                },
+                {
+                    "Next": "Wait 1 minute for stack creation",
+                    "StringEquals": "ROLLBACK_IN_PROGRESS",
+                    "Variable": "$.Status"
+                },
+                {
+                    "Next": "Alert on failed CFN stack creation",
+                    "StringEquals": "CREATE_FAILED",
+                    "Variable": "$.Status"
+                },
+                {
+                    "Next": "Alert on failed CFN stack creation",
+                    "StringEquals": "ROLLBACK_FAILED",
+                    "Variable": "$.Status"
+                },
+                {
+                    "Next": "Alert on failed CFN stack creation",
+                    "StringEquals": "ROLLBACK_COMPLETE",
+                    "Variable": "$.Status"
+                },
+                {
+                    "Next": "Get EMR cluster id",
+                    "StringEquals": "CREATE_COMPLETE",
+                    "Variable": "$.Status"
+                }
+            ],
+            "Default": "Unexpected CFN stack status",
+            "Type": "Choice"
+        },
+        "Evaluate status of CFN stack deletion": {
+            "Choices": [
+                {
+                    "Next": "Wait 1 minute for stack deletion",
+                    "StringEquals": "DELETE_IN_PROGRESS",
+                    "Variable": "$.Status"
+                },
+                {
+                    "Next": "Check for failed EMR step",
+                    "StringEquals": "DELETE_COMPLETE",
+                    "Variable": "$.Status"
+                },
+                {
+                    "Next": "Alert on failed CFN stack deletion",
+                    "StringEquals": "DELETE_FAILED",
+                    "Variable": "$.Status"
+                }
+            ],
+            "Default": "Unexpected CFN stack status",
+            "Type": "Choice"
+        },
+        "Get EMR cluster id": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Delete EMR cluster"
+                }
+            ],
+            "Next": "Step 2 - Initiate preprocessing on the EMR cluster",
+            "Parameters": {
+                "stack_id.$": "$.StackId"
+            },
+            "Resource": "${GetClusterIdLambda.Arn}",
+            "ResultPath": "$.ClusterId",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 300,
+            "Type": "Task"
+        },
+        "Get remaining processing modes": {
+            "Next": "Evaluate next processing mode",
+            "Parameters": {
+                "processing_mode.$": "$.ProcessingMode"
+            },
+            "Resource": "${GetArrayLengthLambda.Arn}",
+            "ResultPath": "$.ProcessingModeLength",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 300,
+            "Type": "Task"
+        },
+        "Mark all steps success": {
+            "Next": "Delete EMR cluster",
+            "Result": {
+                "Status": "succeeded"
+            },
+            "ResultPath": "$.Execution",
+            "Type": "Pass"
+        },
+        "Mark failed step": {
+            "Next": "Delete EMR cluster",
+            "Result": {
+                "Status": "failed"
+            },
+            "ResultPath": "$.Execution",
+            "Type": "Pass"
+        },
+        "Pipeline completed succesfully": {
+            "Type": "Succeed"
+        },
+        "Pipeline failed": {
+            "Cause": "EMR execution step or stack creation/deletion failed.",
+            "Error": "Fail pipeline",
+            "Type": "Fail"
+        },
+        "Poll status of CFN stack creation": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Evaluate status of CFN stack creation"
+                }
+            ],
+            "Next": "Evaluate status of CFN stack creation",
+            "Parameters": {
+                "stack_id.$": "$.StackId"
+            },
+            "Resource": "${DescribeCFNStackLambda.Arn}",
+            "ResultPath": "$.Status",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 300,
+            "Type": "Task"
+        },
+        "Poll status of CFN stack deletion": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Evaluate status of CFN stack deletion"
+                }
+            ],
+            "Next": "Evaluate status of CFN stack deletion",
+            "Parameters": {
+                "stack_id.$": "$.StackId"
+            },
+            "Resource": "${DescribeCFNStackLambda.Arn}",
+            "ResultPath": "$.Status",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 300,
+            "Type": "Task"
+        },
+        "Remove processing mode from list": {
+            "Comment": "Use the slice operator to remove the mode that was just executed",
+            "InputPath": "$.ProcessingMode[1:]",
+            "Next": "Get remaining processing modes",
+            "ResultPath": "$.ProcessingMode",
+            "Type": "Pass"
+        },
+        "Step 1 - Launch EMR cluster with CFN template": {
+            "Next": "Wait 1 minute for stack creation",
+            "Parameters": {
+                "cfn_role": "${CloudFormationRole.Arn}",
+                "clustersize.$": "$.ClusterSize",
+                "execution_name.$": "$$.Execution.Name",
+                "jobinput.$": "$.JobInput",
+                "model_name.$": "$.ModelName",
+                "parameter_url.$": "$.EMRParameters",
+                "project_tag": "step-pipeline",
+                "securitygroup.$": "$.SecurityGroup",
+                "stack_prefix": "auto-emr-",
+                "subnet.$": "$.SubNet",
+                "template_url.$": "$.EMRCloudFormation"
+            },
+            "Resource": "${CreateCFNStackLambda.Arn}",
+            "ResultPath": "$.StackId",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 3600,
+            "Type": "Task"
+        },
+        "Step 2 - Initiate preprocessing on the EMR cluster": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Alert on failed step",
+                    "ResultPath": null
+                }
+            ],
+            "Next": "Step 3 - Initiate model on the EMR cluster",
+            "Parameters": {
+                "FunctionName": "${AsyncStartStateMachineLambda}",
+                "Payload": {
+                    "execution_name.$": "$$.Execution.Name",
+                    "json_input.$": "$",
+                    "program_mode.$": "$.ProcessingMode[0]",
+                    "program_name": "PreProcessingProgram",
+                    "statemachine_arn": "${TransformStateMachineArn}",
+                    "task_token.$": "$$.Task.Token"
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+            "ResultPath": null,
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 86400,
+            "Type": "Task"
+        },
+        "Step 3 - Initiate model on the EMR cluster": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "Alert on failed step",
+                    "ResultPath": null
+                }
+            ],
+            "Next": "Remove processing mode from list",
+            "Parameters": {
+                "FunctionName": "${AsyncStartStateMachineLambda}",
+                "Payload": {
+                    "execution_name.$": "$$.Execution.Name",
+                    "json_input.$": "$",
+                    "program_mode.$": "$.ProcessingMode[0]",
+                    "program_name": "ModelProgram",
+                    "statemachine_arn": "${TransformStateMachineArn}",
+                    "task_token.$": "$$.Task.Token"
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+            "ResultPath": null,
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "TimeoutSeconds": 86400,
+            "Type": "Task"
+        },
+        "Unexpected CFN stack status": {
+            "Comment": "Please investigate the issue in CloudFormation console.",
+            "Next": "Pipeline failed",
+            "Type": "Pass"
+        },
+        "Wait 1 minute for stack creation": {
+            "Next": "Poll status of CFN stack creation",
+            "Seconds": 60,
+            "Type": "Wait"
+        },
+        "Wait 1 minute for stack deletion": {
+            "Next": "Poll status of CFN stack deletion",
+            "Seconds": 60,
+            "Type": "Wait"
+        }
+    }
+}

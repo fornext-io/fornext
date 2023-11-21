@@ -1,0 +1,81 @@
+{
+    "StartAt": "Start Athena Query",
+    "States": {
+        "Done": {
+            "Comment": "All results in the query are processed successfully",
+            "Type": "Succeed"
+        },
+        "Get Query Results with NextToken": {
+            "Next": "Map State",
+            "Parameters": {
+                "MaxResults": 2,
+                "NextToken.$": "$.StartQueryParams.NextToken",
+                "QueryExecutionId.$": "$.QueryExecution.QueryExecutionId"
+            },
+            "Resource": "arn:aws:states:::athena:getQueryResults",
+            "ResultPath": "$.GetQueryResults",
+            "Type": "Task"
+        },
+        "Get Query Results without token": {
+            "Next": "Map State",
+            "Parameters": {
+                "MaxResults": 2,
+                "QueryExecutionId.$": "$.QueryExecution.QueryExecutionId"
+            },
+            "Resource": "arn:aws:states:::athena:getQueryResults",
+            "ResultPath": "$.GetQueryResults",
+            "Type": "Task"
+        },
+        "Has More Results?": {
+            "Choices": [
+                {
+                    "IsPresent": true,
+                    "Next": "Prepare Next Query Params",
+                    "Variable": "$.GetQueryResults.NextToken"
+                }
+            ],
+            "Default": "Done",
+            "Type": "Choice"
+        },
+        "Map State": {
+            "InputPath": "$.GetQueryResults.ResultSet.Rows[1:]",
+            "Iterator": {
+                "StartAt": "ProcessResult",
+                "States": {
+                    "ProcessResult": {
+                        "End": true,
+                        "Type": "Pass"
+                    }
+                }
+            },
+            "MaxConcurrency": 1,
+            "Next": "Has More Results?",
+            "ResultPath": null,
+            "Type": "Map"
+        },
+        "Prepare Next Query Params": {
+            "Next": "Get Query Results with NextToken",
+            "Parameters": {
+                "NextToken.$": "$.GetQueryResults.NextToken",
+                "QueryExecutionId.$": "$.QueryExecution.QueryExecutionId"
+            },
+            "ResultPath": "$.StartQueryParams",
+            "Type": "Pass"
+        },
+        "Start Athena Query": {
+            "Next": "Get Query Results without token",
+            "Parameters": {
+                "QueryExecutionContext": {
+                    "Database": "${DBname}"
+                },
+                "QueryString": "SELECT title FROM ${CrawlerBucketname} limit 10",
+                "ResultConfiguration": {
+                    "OutputLocation": "s3://${AthenaBucketname}"
+                }
+            },
+            "Resource": "arn:aws:states:::athena:startQueryExecution.sync",
+            "Type": "Task"
+        }
+    },
+    "TimeoutSeconds": 3600
+}

@@ -1,0 +1,216 @@
+{
+    "Comment": "A description of my state machine",
+    "StartAt": "Validation",
+    "States": {
+        "Add to FollowUp": {
+            "InputPath": "$.data",
+            "Next": "CustomerAddedToFollowup",
+            "Parameters": {
+                "Item": {
+                    "PK": {
+                        "S.$": "$.identity.email"
+                    }
+                },
+                "TableName": "${FollowUpTableName}"
+            },
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "ResultPath": "$.results",
+            "ResultSelector": {
+                "dbUpdateStatusCode.$": "$.SdkHttpMetadata.HttpStatusCode"
+            },
+            "Type": "Task"
+        },
+        "CustomValidationFailed": {
+            "End": true,
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "Message": "Validation Failed"
+                        },
+                        "DetailType": "ValidationFailed",
+                        "EventBusName": "default",
+                        "Source": "LocalTestingSource"
+                    }
+                ]
+            },
+            "Resource": "arn:aws:states:::events:putEvents",
+            "Type": "Task"
+        },
+        "CustomerAddedToFollowup": {
+            "End": true,
+            "InputPath": "$.data",
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "EmailAddress.$": "$.identity.email",
+                            "Message": "Customer Added for follow up"
+                        },
+                        "DetailType": "CustomerAdded",
+                        "EventBusName": "default",
+                        "Source": "LocalTestingSource"
+                    }
+                ]
+            },
+            "Resource": "arn:aws:states:::events:putEvents",
+            "Type": "Task"
+        },
+        "DetectSentiment": {
+            "Next": "Is Positive Sentiment?",
+            "Parameters": {
+                "LanguageCode": "en",
+                "Text.$": "$.data.comments"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:comprehend:detectSentiment",
+            "ResultPath": "$.results",
+            "ResultSelector": {
+                "sentimentAnalysis.$": "$"
+            },
+            "Retry": [
+                {
+                    "BackoffRate": 1,
+                    "ErrorEquals": [
+                        "InternalServerException"
+                    ],
+                    "IntervalSeconds": 1,
+                    "MaxAttempts": 3
+                }
+            ],
+            "Type": "Task"
+        },
+        "Is Positive Sentiment?": {
+            "Choices": [
+                {
+                    "Next": "Add to FollowUp",
+                    "StringEquals": "POSITIVE",
+                    "Variable": "$.results.sentimentAnalysis.Sentiment"
+                }
+            ],
+            "Default": "NegativeSentimentDetected",
+            "Type": "Choice"
+        },
+        "NegativeSentimentDetected": {
+            "End": true,
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "Data.$": "$.data",
+                            "Message": "Negative Sentiment Detected"
+                        },
+                        "DetailType": "NegativeSentiment",
+                        "EventBusName": "default",
+                        "Source": "LocalTestingSource"
+                    }
+                ]
+            },
+            "Resource": "arn:aws:states:::events:putEvents",
+            "Type": "Task"
+        },
+        "Validation": {
+            "Branches": [
+                {
+                    "StartAt": "Check Identity",
+                    "States": {
+                        "Check Identity": {
+                            "End": true,
+                            "InputPath": "$.data.identity",
+                            "Parameters": {
+                                "FunctionName": "${CheckIdentityFunctionArn}",
+                                "Payload.$": "$"
+                            },
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "ResultSelector": {
+                                "identity.$": "States.StringToJson($.Payload.body)"
+                            },
+                            "Retry": [
+                                {
+                                    "BackoffRate": 1,
+                                    "ErrorEquals": [
+                                        "Lambda.ServiceException",
+                                        "Lambda.AWSLambdaException",
+                                        "Lambda.SdkClientException",
+                                        "CustomValidationError"
+                                    ],
+                                    "IntervalSeconds": 1,
+                                    "MaxAttempts": 3
+                                }
+                            ],
+                            "Type": "Task"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "Check Address",
+                    "States": {
+                        "Check Address": {
+                            "End": true,
+                            "InputPath": "$.data.address",
+                            "Parameters": {
+                                "FunctionName": "${CheckAddressFunctionArn}",
+                                "Payload.$": "$"
+                            },
+                            "Resource": "arn:aws:states:::lambda:invoke",
+                            "ResultSelector": {
+                                "address.$": "States.StringToJson($.Payload.body)"
+                            },
+                            "Retry": [
+                                {
+                                    "BackoffRate": 1,
+                                    "ErrorEquals": [
+                                        "Lambda.ServiceException",
+                                        "Lambda.AWSLambdaException",
+                                        "Lambda.SdkClientException",
+                                        "CustomValidationError"
+                                    ],
+                                    "IntervalSeconds": 1,
+                                    "MaxAttempts": 3
+                                }
+                            ],
+                            "Type": "Task"
+                        }
+                    }
+                }
+            ],
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "CustomValidationError"
+                    ],
+                    "Next": "CustomValidationFailed"
+                },
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "ValidationException"
+                }
+            ],
+            "Next": "DetectSentiment",
+            "ResultPath": "$.results",
+            "ResultSelector": {
+                "addressResult.$": "$[1].address",
+                "identityResult.$": "$[0].identity"
+            },
+            "Type": "Parallel"
+        },
+        "ValidationException": {
+            "End": true,
+            "Parameters": {
+                "Entries": [
+                    {
+                        "Detail": {
+                            "Message": "Validation Exception"
+                        },
+                        "DetailType": "ValidationException",
+                        "EventBusName": "default",
+                        "Source": "LocalTestingSource"
+                    }
+                ]
+            },
+            "Resource": "arn:aws:states:::events:putEvents",
+            "Type": "Task"
+        }
+    }
+}

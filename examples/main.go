@@ -1,3 +1,4 @@
+// Package main ...
 package main
 
 import (
@@ -12,7 +13,7 @@ import (
 )
 
 func main() {
-	data, err := os.ReadFile(path.Join(test.CurrentProjectPath(), "examples", "example.json"))
+	data, err := os.ReadFile(path.Join(test.CurrentProjectPath(), "test", "resources", "example.json"))
 	if err != nil {
 		panic(err)
 	}

@@ -1,0 +1,47 @@
+{
+    "StartAt": "textract",
+    "States": {
+        "Notify Success": {
+            "End": true,
+            "Parameters": {
+                "Message": "Success",
+                "TopicArn": "${SUCCESS_TOPIC_ARN}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:sns:publish",
+            "ResultPath": "$.Result",
+            "Type": "Task"
+        },
+        "Wait for Textract Callback": {
+            "Next": "Notify Success",
+            "Parameters": {
+                "MessageBody": {
+                    "MessageTitle": "Task started by Step Functions. Waiting for callback with task token.",
+                    "TaskToken.$": "$$.Task.Token"
+                },
+                "MessageGroupId.$": "$.Result.JobId",
+                "QueueUrl": "${QUEUE_URL}"
+            },
+            "Resource": "arn:aws:states:::sqs:sendMessage.waitForTaskToken",
+            "Type": "Task"
+        },
+        "textract": {
+            "Next": "Wait for Textract Callback",
+            "Parameters": {
+                "DocumentLocation": {
+                    "S3Object.$": "$.Input"
+                },
+                "NotificationChannel": {
+                    "RoleArn": "${ROLE_ARN}",
+                    "SnsTopicArn": "${SNS_ARN}"
+                },
+                "OutputConfig": {
+                    "S3Bucket": "${S3_BUCKET}",
+                    "S3Prefix": "output"
+                }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:textract:startDocumentTextDetection",
+            "ResultPath": "$.Result",
+            "Type": "Task"
+        }
+    }
+}
