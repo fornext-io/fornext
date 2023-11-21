@@ -1,0 +1,105 @@
+{
+    "Comment": "An example of the MediaLive to MediaPackage workflow",
+    "StartAt": "MediaLiveFindChannel",
+    "States": {
+        "Done": {
+            "End": true,
+            "Type": "Pass"
+        },
+        "IsMediaLiveChannelIdle": {
+            "Choices": [
+                {
+                    "Next": "MediaLiveDeleteChannel",
+                    "StringEquals": "IDLE",
+                    "Variable": "$.medialive.channel.State"
+                }
+            ],
+            "Default": "WaitForChannelIdleState",
+            "Type": "Choice"
+        },
+        "IsMediaLiveInputDetached": {
+            "Choices": [
+                {
+                    "Next": "MediaLiveDeleteInput",
+                    "StringEquals": "DETACHED",
+                    "Variable": "$.medialive.input.State"
+                }
+            ],
+            "Default": "WaitForInputDetachedState",
+            "Type": "Choice"
+        },
+        "MediaLiveDeleteChannel": {
+            "InputPath": "$.medialive.channel.Id",
+            "Next": "WaitForInputDetachedState",
+            "Resource": "${medialiveDeleteChannelArn}",
+            "ResultPath": "$.medialive.deleteChannelResponse",
+            "Type": "Task"
+        },
+        "MediaLiveDeleteInput": {
+            "InputPath": "$.medialive.channel.InputAttachments[0].InputId",
+            "Next": "Done",
+            "Resource": "${medialiveDeleteInputArn}",
+            "ResultPath": "$.medialive.deleteInputResponse",
+            "Type": "Task"
+        },
+        "MediaLiveDescribeChannel": {
+            "InputPath": "$.medialive.channel.Id",
+            "Next": "IsMediaLiveChannelIdle",
+            "Resource": "${medialiveDescribeChannelArn}",
+            "ResultPath": "$.medialive.channel",
+            "Type": "Task"
+        },
+        "MediaLiveDescribeInput": {
+            "InputPath": "$.medialive.channel.InputAttachments[0].InputId",
+            "Next": "IsMediaLiveInputDetached",
+            "Resource": "${medialiveDescribeInputArn}",
+            "ResultPath": "$.medialive.input",
+            "Type": "Task"
+        },
+        "MediaLiveFindChannel": {
+            "InputPath": "$.name",
+            "Next": "MediaLiveStopChannel",
+            "Resource": "${medialiveFindChannelArn}",
+            "ResultPath": "$.medialive.channel",
+            "Type": "Task"
+        },
+        "MediaLiveStopChannel": {
+            "InputPath": "$.medialive.channel.Id",
+            "Next": "SystemsManagerDeleteParameters",
+            "Resource": "${medialiveStopChannelArn}",
+            "ResultPath": "$.medialive.channel",
+            "Type": "Task"
+        },
+        "MediaPackageDeleteChannel": {
+            "InputPath": "$.name",
+            "Next": "WaitForChannelIdleState",
+            "Resource": "${mediapackageDeleteChannelArn}",
+            "ResultPath": "$.mediapackage.deleteChannel",
+            "Type": "Task"
+        },
+        "MediaPackageDeleteEndpoints": {
+            "InputPath": "$.name",
+            "Next": "MediaPackageDeleteChannel",
+            "Resource": "${mediapackageDeleteEndpointsArn}",
+            "ResultPath": "$.mediapackage.deleteEndpoints",
+            "Type": "Task"
+        },
+        "SystemsManagerDeleteParameters": {
+            "InputPath": "$.name",
+            "Next": "MediaPackageDeleteEndpoints",
+            "Resource": "${systemsmanagerDeleteParametersArn}",
+            "ResultPath": "$.ssm.results",
+            "Type": "Task"
+        },
+        "WaitForChannelIdleState": {
+            "Next": "MediaLiveDescribeChannel",
+            "Seconds": 1,
+            "Type": "Wait"
+        },
+        "WaitForInputDetachedState": {
+            "Next": "MediaLiveDescribeInput",
+            "Seconds": 1,
+            "Type": "Wait"
+        }
+    }
+}

@@ -1,0 +1,81 @@
+{
+    "Comment": "Deployer Example",
+    "StartAt": "FetchValidateCreateFn",
+    "States": {
+        "CheckHealthy": {
+            "Comment": "Is the new deploy healthy? Should we continue checking?",
+            "Next": "Healthy?",
+            "Resource": "go://localhost/CheckHealthy",
+            "Type": "Task"
+        },
+        "CheckHealthyFn": {
+            "Next": "CheckHealthy",
+            "Result": "CheckHealthy",
+            "ResultPath": "$.Task",
+            "Type": "Pass"
+        },
+        "CleanUp": {
+            "Comment": "Delete Old Resources",
+            "Next": "Success",
+            "Resource": "go://localhost/CleanUp",
+            "Type": "Task"
+        },
+        "CleanUpFailure": {
+            "Comment": "Delete Old Resources",
+            "Next": "Fail",
+            "Resource": "go://localhost/CleanUpFailure",
+            "Type": "Task"
+        },
+        "CleanUpFailureFn": {
+            "Next": "CleanUpFailure",
+            "Result": "CleanUpFailure",
+            "ResultPath": "$.Task",
+            "Type": "Pass"
+        },
+        "CleanUpFn": {
+            "Next": "CleanUp",
+            "Result": "CleanUp",
+            "ResultPath": "$.Task",
+            "Type": "Pass"
+        },
+        "Fail": {
+            "Type": "Fail"
+        },
+        "FetchValidateCreate": {
+            "Comment": "Fetch, Validate, Create Resources",
+            "Next": "WaitForHealthy",
+            "Resource": "go://localhost/FetchValidateCreate",
+            "Type": "Task"
+        },
+        "FetchValidateCreateFn": {
+            "Next": "FetchValidateCreate",
+            "Result": "FetchValidateCreate",
+            "ResultPath": "$.Task",
+            "Type": "Pass"
+        },
+        "Healthy?": {
+            "Choices": [
+                {
+                    "BooleanEquals": true,
+                    "Next": "CleanUpFn",
+                    "Variable": "$.Healthy"
+                },
+                {
+                    "BooleanEquals": true,
+                    "Next": "WaitForHealthy",
+                    "Variable": "$.CheckAgain"
+                }
+            ],
+            "Default": "CleanUpFailureFn",
+            "Type": "Choice"
+        },
+        "Success": {
+            "Type": "Succeed"
+        },
+        "WaitForHealthy": {
+            "Next": "CheckHealthyFn",
+            "Seconds": 20,
+            "Type": "Wait"
+        }
+    }
+}

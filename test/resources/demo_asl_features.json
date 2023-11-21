@@ -1,0 +1,179 @@
+{
+    "Comment": "This is your state machine",
+    "StartAt": "Generate startup log message using States.Format and Context Object",
+    "States": {
+        "Add array of unique ages using JSONPath Expression": {
+            "Next": "Recreate Pet List Using JSONPath Expression",
+            "Parameters": {
+                "pets.$": "$",
+                "uniqueAges.$": "$..age"
+            },
+            "Type": "Pass"
+        },
+        "Convert JSON string bagk to array using Stats.StringToJson": {
+            "Next": "Create Pets",
+            "Parameters": {
+                "myArray.$": "States.StringToJson($.mySerializedArray)"
+            },
+            "Type": "Pass"
+        },
+        "Convert the array to JSON string using States.JsonToString": {
+            "Next": "Convert JSON string bagk to array using Stats.StringToJson",
+            "Parameters": {
+                "mySerializedArray.$": "States.JsonToString($.myArray)"
+            },
+            "Type": "Pass"
+        },
+        "Create Pets": {
+            "ItemsPath": "$.myArray",
+            "Iterator": {
+                "StartAt": "Choice",
+                "States": {
+                    "Choice": {
+                        "Choices": [
+                            {
+                                "And": [
+                                    {
+                                        "IsNumeric": true,
+                                        "Variable": "$"
+                                    },
+                                    {
+                                        "And": [
+                                            {
+                                                "Or": [
+                                                    {
+                                                        "NumericEquals": 1,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 3,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 5,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 7,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 9,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericGreaterThan": 10,
+                                                        "Variable": "$"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "Next": "Create Dog"
+                            },
+                            {
+                                "And": [
+                                    {
+                                        "IsNumeric": true,
+                                        "Variable": "$"
+                                    },
+                                    {
+                                        "And": [
+                                            {
+                                                "Or": [
+                                                    {
+                                                        "NumericEquals": 2,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 4,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 6,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 8,
+                                                        "Variable": "$"
+                                                    },
+                                                    {
+                                                        "NumericEquals": 10,
+                                                        "Variable": "$"
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                    }
+                                ],
+                                "Next": "Create Cat"
+                            }
+                        ],
+                        "Type": "Choice"
+                    },
+                    "Create Cat": {
+                        "End": true,
+                        "Parameters": {
+                            "age.$": "$",
+                            "createdBy.$": "$$.State.Name",
+                            "species": "cat"
+                        },
+                        "Type": "Pass"
+                    },
+                    "Create Dog": {
+                        "End": true,
+                        "Parameters": {
+                            "age.$": "$",
+                            "createdBy.$": "$$.State.Name",
+                            "species": "dog"
+                        },
+                        "Type": "Pass"
+                    }
+                }
+            },
+            "Next": "Create separate list of cats and dogs using JSONPath Expressions",
+            "ResultSelector": {
+                "pets.$": "$"
+            },
+            "Type": "Map"
+        },
+        "Create separate list of cats and dogs using JSONPath Expressions": {
+            "Next": "Add array of unique ages using JSONPath Expression",
+            "Parameters": {
+                "cats": {
+                    "old.$": "$.pets[?(@.species == 'cat' \u0026\u0026 @.age\u003e=5)]",
+                    "young.$": "$.pets[?(@.species == 'cat' \u0026\u0026 @.age\u003c5)]"
+                },
+                "dogs": {
+                    "old.$": "$.pets[?(@.species == 'dog' \u0026\u0026 @.age\u003e=5)]",
+                    "young.$": "$.pets[?(@.species == 'dog' \u0026\u0026 @.age\u003c5)]"
+                }
+            },
+            "Type": "Pass"
+        },
+        "Generate an array using States.Array": {
+            "Next": "Convert the array to JSON string using States.JsonToString",
+            "Parameters": {
+                "myArray.$": "States.Array(1,2,3,4,5,6,7,8,9,10)"
+            },
+            "Type": "Pass"
+        },
+        "Generate startup log message using States.Format and Context Object": {
+            "Next": "Generate an array using States.Array",
+            "Parameters": {
+                "startupLogMessage.$": "States.Format('Starting execution of {} at {} with role of {}',$$.StateMachine.Name,$$.Execution.StartTime,$$.Execution.RoleArn)"
+            },
+            "Type": "Pass"
+        },
+        "Recreate Pet List Using JSONPath Expression": {
+            "End": true,
+            "Parameters": {
+                "flattenedPets.$": "$.pets[*][*][*]",
+                "groupedPets.$": "$.pets",
+                "uniqueAges.$": "$..age"
+            },
+            "Type": "Pass"
+        }
+    }
+}

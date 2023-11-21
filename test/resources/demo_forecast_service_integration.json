@@ -1,0 +1,341 @@
+{
+    "Comment": "An automation Pipeline for Amazon Forecast.",
+    "StartAt": "Create-Dataset",
+    "States": {
+        "Backtest-Export": {
+            "Next": "Create-Forecast",
+            "Parameters": {
+                "Destination": {
+                    "S3Config": {
+                        "Path": "s3://${S3DataBucket}/forecast_results/backtestexport/",
+                        "RoleArn": "${ForecastRole}"
+                    }
+                },
+                "PredictorArn.$": "$.createPredictorResult.PredictorArn",
+                "PredictorBacktestExportJobName.$": "States.Format('{}_backtestexport', $.ProjectName)"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:createPredictorBacktestExportJob",
+            "ResultPath": "$.createPredictorBacktestExportJobResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 180,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Check-Data-Import": {
+            "Next": "Fork-Data-Import",
+            "Parameters": {
+                "DatasetImportJobArn.$": "$.createDatasetImportJobResult.DatasetImportJobArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:describeDatasetImportJob",
+            "ResultPath": "$.describeDatasetImportJobResult",
+            "Type": "Task"
+        },
+        "Clean-Up": {
+            "Next": "Delete-Forecast-Export",
+            "Type": "Pass"
+        },
+        "Create-Dataset": {
+            "Next": "Import-Data",
+            "Parameters": {
+                "DataFrequency": "H",
+                "DatasetName.$": "States.Format('{}_target', $.ProjectName)",
+                "DatasetType": "TARGET_TIME_SERIES",
+                "Domain": "CUSTOM",
+                "Schema": {
+                    "Attributes": [
+                        {
+                            "AttributeName": "timestamp",
+                            "AttributeType": "timestamp"
+                        },
+                        {
+                            "AttributeName": "target_value",
+                            "AttributeType": "float"
+                        },
+                        {
+                            "AttributeName": "item_id",
+                            "AttributeType": "string"
+                        }
+                    ]
+                }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:createDataset",
+            "ResultPath": "$.createDatasetResult",
+            "Type": "Task"
+        },
+        "Create-DatasetGroup": {
+            "Next": "Check-Data-Import",
+            "Parameters": {
+                "DatasetArns.$": "States.Array($.createDatasetResult.DatasetArn)",
+                "DatasetGroupName.$": "States.Format('{}', $.ProjectName)",
+                "Domain": "CUSTOM"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:createDatasetGroup",
+            "ResultPath": "$.createDatasetGroupResult",
+            "Type": "Task"
+        },
+        "Create-Forecast": {
+            "Next": "Forecast-Export",
+            "Parameters": {
+                "ForecastName.$": "States.Format('{}_forecast', $.ProjectName)",
+                "PredictorArn.$": "$.createPredictorResult.PredictorArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:createForecast",
+            "ResultPath": "$.createForecastResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 180,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Create-Predictor": {
+            "Next": "Backtest-Export",
+            "Parameters": {
+                "AlgorithmArn": "arn:aws:forecast:::algorithm/NPTS",
+                "EvaluationParameters": {
+                    "BackTestWindowOffset": 24,
+                    "NumberOfBacktestWindows": 1
+                },
+                "FeaturizationConfig": {
+                    "Featurizations": [
+                        {
+                            "AttributeName": "target_value",
+                            "FeaturizationPipeline": [
+                                {
+                                    "FeaturizationMethodName": "filling",
+                                    "FeaturizationMethodParameters": {
+                                        "backfill": "zero",
+                                        "frontfill": "none",
+                                        "middlefill": "zero"
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "ForecastFrequency": "H"
+                },
+                "ForecastHorizon": 24,
+                "InputDataConfig": {
+                    "DatasetGroupArn.$": "$.createDatasetGroupResult.DatasetGroupArn"
+                },
+                "PerformAutoML": false,
+                "PerformHPO": false,
+                "PredictorName.$": "States.Format('{}_predictor', $.ProjectName)"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:createPredictor",
+            "ResultPath": "$.createPredictorResult",
+            "Type": "Task"
+        },
+        "Delete-Backtest": {
+            "Next": "Delete-Predictor",
+            "Parameters": {
+                "PredictorBacktestExportJobArn.$": "$.createPredictorBacktestExportJobResult.PredictorBacktestExportJobArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:deletePredictorBacktestExportJob",
+            "ResultPath": "$.deletePredictorBacktestExportJobResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1.1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 10,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Delete-Dataset": {
+            "Next": "Delete-DatasetGroup",
+            "Parameters": {
+                "DatasetArn.$": "$.createDatasetResult.DatasetArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:deleteDataset",
+            "ResultPath": "$.deleteDatasetResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1.1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 10,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Delete-DatasetGroup": {
+            "Next": "SuccessState",
+            "Parameters": {
+                "DatasetGroupArn.$": "$.createDatasetGroupResult.DatasetGroupArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:deleteDatasetGroup",
+            "ResultPath": "$.deleteDatasetGroupResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1.1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 10,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Delete-Forecast": {
+            "Next": "Delete-Backtest",
+            "Parameters": {
+                "ForecastArn.$": "$.createForecastResult.ForecastArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:deleteForecast",
+            "ResultPath": "$.deleteForecastResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1.1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 10,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Delete-Forecast-Export": {
+            "Next": "Delete-Forecast",
+            "Parameters": {
+                "ForecastExportJobArn.$": "$.createForecastExportJobResult.ForecastExportJobArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:deleteForecastExportJob",
+            "ResultPath": "$.deleteForecastExportJobResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1.1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 10,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Delete-Import": {
+            "Next": "Delete-Dataset",
+            "Parameters": {
+                "DatasetImportJobArn.$": "$.createDatasetImportJobResult.DatasetImportJobArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:deleteDatasetImportJob",
+            "ResultPath": "$.deleteDatasetImportJobResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1.1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 10,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Delete-Predictor": {
+            "Next": "Delete-Import",
+            "Parameters": {
+                "PredictorArn.$": "$.createPredictorResult.PredictorArn"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:deletePredictor",
+            "ResultPath": "$.deletePredictorResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1.1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 10,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Done-Data-Import": {
+            "Next": "Create-Predictor",
+            "Type": "Pass"
+        },
+        "Forecast-Export": {
+            "Next": "Clean-Up",
+            "Parameters": {
+                "Destination": {
+                    "S3Config": {
+                        "Path": "s3://${S3DataBucket}/forecast_results/forecast/",
+                        "RoleArn": "${ForecastRole}"
+                    }
+                },
+                "ForecastArn.$": "$.createForecastResult.ForecastArn",
+                "ForecastExportJobName.$": "States.Format('{}_forecastexport', $.ProjectName)"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:createForecastExportJob",
+            "ResultPath": "$.createForecastExportJobResult",
+            "Retry": [
+                {
+                    "BackoffRate": 1,
+                    "ErrorEquals": [
+                        "Forecast.ResourceInUseException"
+                    ],
+                    "IntervalSeconds": 180,
+                    "MaxAttempts": 100
+                }
+            ],
+            "Type": "Task"
+        },
+        "Fork-Data-Import": {
+            "Choices": [
+                {
+                    "Next": "Done-Data-Import",
+                    "StringEquals": "ACTIVE",
+                    "Variable": "$.describeDatasetImportJobResult.Status"
+                }
+            ],
+            "Default": "Wait-Data-Import",
+            "Type": "Choice"
+        },
+        "Import-Data": {
+            "Next": "Create-DatasetGroup",
+            "Parameters": {
+                "DataSource": {
+                    "S3Config": {
+                        "Path": "s3://${S3DataBucket}/${S3DataBucketInputKey}",
+                        "RoleArn": "${ForecastRole}"
+                    }
+                },
+                "DatasetArn.$": "$.createDatasetResult.DatasetArn",
+                "DatasetImportJobName.$": "States.Format('{}_import', $.ProjectName)",
+                "TimestampFormat": "yyyy-MM-dd hh:mm:ss"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:forecast:createDatasetImportJob",
+            "ResultPath": "$.createDatasetImportJobResult",
+            "Type": "Task"
+        },
+        "SuccessState": {
+            "Type": "Succeed"
+        },
+        "Wait-Data-Import": {
+            "Next": "Check-Data-Import",
+            "Seconds": 60,
+            "Type": "Wait"
+        }
+    }
+}

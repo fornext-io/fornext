@@ -1,0 +1,12 @@
+{
+    "StartAt": "p",
+    "States": {
+        "p": {
+            "End": true,
+            "HeartbeatSeconds": 30,
+            "HeartbeatSecondsPath": "$.abc",
+            "Resource": "foo:bar",
+            "Type": "Task"
+        }
+    }
+}

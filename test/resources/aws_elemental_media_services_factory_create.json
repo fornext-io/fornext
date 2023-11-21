@@ -1,0 +1,104 @@
+{
+    "Comment": "An example of the MediaLive to MediaPackage workflow",
+    "StartAt": "MediaPackageCreateChannel",
+    "States": {
+        "Done": {
+            "End": true,
+            "Type": "Pass"
+        },
+        "IsMediaLiveChannelIdle": {
+            "Choices": [
+                {
+                    "Next": "MediaLiveStartChannel",
+                    "StringEquals": "IDLE",
+                    "Variable": "$.medialive.channel.State"
+                }
+            ],
+            "Default": "WaitForIdleState",
+            "Type": "Choice"
+        },
+        "IsMediaLiveChannelRunning": {
+            "Choices": [
+                {
+                    "Next": "Done",
+                    "StringEquals": "RUNNING",
+                    "Variable": "$.medialive.channel.State"
+                }
+            ],
+            "Default": "WaitForRunningState",
+            "Type": "Choice"
+        },
+        "MediaLiveAttachRole": {
+            "Next": "MediaLiveCreateInput",
+            "Resource": "${medialiveAttachRoleArn}",
+            "ResultPath": "$.medialive.roleArn",
+            "Type": "Task"
+        },
+        "MediaLiveCreateChannel": {
+            "InputPath": "$",
+            "Next": "WaitForIdleState",
+            "Resource": "${medialiveCreateChannelArn}",
+            "ResultPath": "$.medialive.channel",
+            "Type": "Task"
+        },
+        "MediaLiveCreateInput": {
+            "InputPath": "$.name",
+            "Next": "MediaLiveCreateChannel",
+            "Resource": "${medialiveCreateInputArn}",
+            "ResultPath": "$.medialive.input",
+            "Type": "Task"
+        },
+        "MediaLiveDescribeChannel1": {
+            "InputPath": "$.medialive.channel.Id",
+            "Next": "IsMediaLiveChannelIdle",
+            "Resource": "${medialiveDescribeChannelArn}",
+            "ResultPath": "$.medialive.channel",
+            "Type": "Task"
+        },
+        "MediaLiveDescribeChannel2": {
+            "InputPath": "$.medialive.channel.Id",
+            "Next": "IsMediaLiveChannelRunning",
+            "Resource": "${medialiveDescribeChannelArn}",
+            "ResultPath": "$.medialive.channel",
+            "Type": "Task"
+        },
+        "MediaLiveStartChannel": {
+            "InputPath": "$.medialive.channel.Id",
+            "Next": "WaitForRunningState",
+            "Resource": "${medialiveStartChannelArn}",
+            "ResultPath": null,
+            "Type": "Task"
+        },
+        "MediaPackageCreateChannel": {
+            "InputPath": "$.name",
+            "Next": "MediaPackageCreateEndpoints",
+            "Resource": "${mediapackageCreateChannelArn}",
+            "ResultPath": "$.mediapackage.channel",
+            "Type": "Task"
+        },
+        "MediaPackageCreateEndpoints": {
+            "InputPath": "$.mediapackage.channel",
+            "Next": "SystemsManagerCreateParameters",
+            "Resource": "${mediapackageCreateEndpointsArn}",
+            "ResultPath": "$.mediapackage.endpoints",
+            "Type": "Task"
+        },
+        "SystemsManagerCreateParameters": {
+            "InputPath": "$.mediapackage.channel",
+            "Next": "MediaLiveAttachRole",
+            "Resource": "${systemsmanagerCreateParametersArn}",
+            "ResultPath": "$.systemsmanager.parameters",
+            "Type": "Task"
+        },
+        "WaitForIdleState": {
+            "Next": "MediaLiveDescribeChannel1",
+            "Seconds": 1,
+            "Type": "Wait"
+        },
+        "WaitForRunningState": {
+            "Next": "MediaLiveDescribeChannel2",
+            "Seconds": 5,
+            "Type": "Wait"
+        }
+    }
+}

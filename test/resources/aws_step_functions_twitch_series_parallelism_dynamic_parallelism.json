@@ -1,0 +1,84 @@
+{
+    "Comment": "An example of the Amazon States Language using a map state to process elements of an array with a max concurrency of 2.",
+    "StartAt": "Authorize Charge",
+    "States": {
+        "Authorization Failed": {
+            "Cause": "Charge could not be authorized",
+            "Type": "Fail"
+        },
+        "Authorize Charge": {
+            "Next": "Check Authorization",
+            "Result": {
+                "AuthorizationID": "1234567890",
+                "AuthorizationSucceeded": true,
+                "AuthorizedAmount": "81.48"
+            },
+            "ResultPath": "$.chargeAuthorization",
+            "Type": "Pass"
+        },
+        "Check Authorization": {
+            "Choices": [
+                {
+                    "BooleanEquals": true,
+                    "Next": "Retrieve Items",
+                    "Variable": "$.chargeAuthorization.AuthorizationSucceeded"
+                }
+            ],
+            "Default": "Authorization Failed",
+            "Type": "Choice"
+        },
+        "Complete Charge": {
+            "End": true,
+            "Type": "Pass"
+        },
+        "Map": {
+            "ItemsPath": "$.orderItems",
+            "Iterator": {
+                "StartAt": "Lock Item",
+                "States": {
+                    "Lock Item": {
+                        "Next": "Pull Item",
+                        "Result": "Done!",
+                        "Type": "Pass"
+                    },
+                    "Pack Item": {
+                        "End": true,
+                        "Result": "Done!",
+                        "Type": "Pass"
+                    },
+                    "Pull Item": {
+                        "Next": "Pack Item",
+                        "Result": "Done!",
+                        "Type": "Pass"
+                    }
+                }
+            },
+            "MaxConcurrency": 40,
+            "Next": "Print Label",
+            "ResultPath": "$.lockedItems",
+            "Type": "Map"
+        },
+        "Print Label": {
+            "Next": "Complete Charge",
+            "Result": "Done!",
+            "Type": "Pass"
+        },
+        "Retrieve Items": {
+            "Next": "Map",
+            "Result": [
+                {
+                    "SKU": "asdf",
+                    "price": "2.50",
+                    "quantity": 1
+                },
+                {
+                    "SKU": "qwer",
+                    "price": "4.21",
+                    "quantity": 17
+                }
+            ],
+            "ResultPath": "$.orderItems",
+            "Type": "Pass"
+        }
+    }
+}

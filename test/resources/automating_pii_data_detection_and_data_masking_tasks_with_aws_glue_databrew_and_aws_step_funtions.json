@@ -1,0 +1,162 @@
+{
+    "Comment": "Automatically detect PII columns of data files loaded into S3 and reproduce the data files with PII columns masked.",
+    "StartAt": "Create Glue DataBrew Dataset",
+    "States": {
+        "Create Glue DataBrew Dataset": {
+            "InputPath": "$.detail",
+            "Next": "Create Glue DataBrew Profile Job",
+            "Parameters": {
+                "Input": {
+                    "S3InputDefinition": {
+                        "Bucket.$": "$.bucket.name",
+                        "Key.$": "$.object.key"
+                    }
+                },
+                "Name.$": "$.object.key"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:databrew:createDataset",
+            "Type": "Task"
+        },
+        "Create Glue DataBrew PII Data Masking Recipe": {
+            "Next": "Create Glue DataBrew Project",
+            "Parameters": {
+                "Name.$": "States.Format('{}-PII-Masking-Recipe',$.DatasetName)",
+                "Steps": [
+                    {
+                        "Action": {
+                            "Operation": "CRYPTOGRAPHIC_HASH",
+                            "Parameters": {
+                                "secretId": "${GlueDataBrewPIITaskSecretArn}",
+                                "sourceColumns.$": "$.LambdaTaskResult.pii-columns"
+                            }
+                        }
+                    }
+                ]
+            },
+            "Resource": "arn:aws:states:::aws-sdk:databrew:createRecipe",
+            "ResultPath": "$.Recipe",
+            "Type": "Task"
+        },
+        "Create Glue DataBrew Profile Job": {
+            "Next": "Start Glue DataBrew Profile Job",
+            "Parameters": {
+                "Configuration": {
+                    "EntityDetectorConfiguration": {
+                        "AllowedStatistics": [
+                            {
+                                "Statistics": [
+                                    "AGGREGATED_GROUP",
+                                    "TOP_VALUES_GROUP",
+                                    "CONTAINING_NUMERIC_VALUES_GROUP"
+                                ]
+                            }
+                        ],
+                        "EntityTypes": [
+                            "USA_ALL",
+                            "PERSON_NAME"
+                        ]
+                    }
+                },
+                "DatasetName.$": "$.Name",
+                "Name.$": "States.Format('{}-PII-Detection-Job',$.Name)",
+                "OutputLocation": {
+                    "Bucket": "${GlueDataBrewOutputBucketName}"
+                },
+                "RoleArn": "${RoleGlueDataBrewPIITask.Arn}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:databrew:createProfileJob",
+            "Type": "Task"
+        },
+        "Create Glue DataBrew Project": {
+            "Next": "Create Glue DataBrew Recipe Job",
+            "Parameters": {
+                "DatasetName.$": "$.DatasetName",
+                "Name.$": "States.Format('{}-PII-Project',$.DatasetName)",
+                "RecipeName.$": "$.Recipe.Name",
+                "RoleArn": "${RoleGlueDataBrewPIITask.Arn}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:databrew:createProject",
+            "ResultPath": "$.Project",
+            "Type": "Task"
+        },
+        "Create Glue DataBrew Recipe Job": {
+            "Next": "Start Glue DataBrew Recipe Job",
+            "Parameters": {
+                "Name.$": "States.Format('{}-PII-Masking-Job',$.DatasetName)",
+                "Outputs": [
+                    {
+                        "Location": {
+                            "Bucket": "${GlueDataBrewOutputBucketName}"
+                        }
+                    }
+                ],
+                "ProjectName.$": "$.Project.Name",
+                "RoleArn": "${RoleGlueDataBrewPIITask.Arn}"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:databrew:createRecipeJob",
+            "Type": "Task"
+        },
+        "No PII Data is Found": {
+            "Type": "Succeed"
+        },
+        "Process Profile Result with Lambda Function": {
+            "Next": "Validate if the Dataset Contains PII Columns",
+            "Parameters": {
+                "FunctionName": "${FunctionGlueDataBrewProfileReader.Arn}",
+                "Payload.$": "$"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.LambdaTaskResult",
+            "ResultSelector": {
+                "pii-columns.$": "$.Payload"
+            },
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "Type": "Task"
+        },
+        "Start Glue DataBrew Profile Job": {
+            "Next": "Process Profile Result with Lambda Function",
+            "Parameters": {
+                "Name.$": "$.Name"
+            },
+            "Resource": "arn:aws:states:::databrew:startJobRun.sync",
+            "ResultSelector": {
+                "DatasetName.$": "$.DatasetName",
+                "Outputs.$": "$.Outputs"
+            },
+            "Type": "Task"
+        },
+        "Start Glue DataBrew Recipe Job": {
+            "Next": "Successfully Mask PII Data",
+            "Parameters": {
+                "Name.$": "$.Name"
+            },
+            "Resource": "arn:aws:states:::databrew:startJobRun.sync",
+            "Type": "Task"
+        },
+        "Successfully Mask PII Data": {
+            "Type": "Succeed"
+        },
+        "Validate if the Dataset Contains PII Columns": {
+            "Choices": [
+                {
+                    "Next": "No PII Data is Found",
+                    "StringEquals": "No PII columns found.",
+                    "Variable": "$.LambdaTaskResult.pii-columns"
+                }
+            ],
+            "Default": "Create Glue DataBrew PII Data Masking Recipe",
+            "Type": "Choice"
+        }
+    }
+}

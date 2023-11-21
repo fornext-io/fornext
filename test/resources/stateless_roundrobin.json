@@ -1,0 +1,64 @@
+{
+    "Comment": "A round robin based on task exuections and input array",
+    "StartAt": "ListExecutions",
+    "States": {
+        "Call out to API": {
+            "End": true,
+            "Parameters": {
+                "FunctionName": "${CallToAPIFunctionName}",
+                "Payload": {
+                    "assignee.$": "$.userId.Payload",
+                    "html_notes.$": "States.Format('\u003cbody\u003e------Message:{} ------ Share \u003ca href=\"https://www.stickermule.com/account/reorder\"\u003ethese stickers\u003c/a\u003e with {}\u003c/body\u003e',$.body.message,$.body.requestor)",
+                    "title.$": "States.Format('Sticker request: for {}.', $.body.requestor)",
+                    "type": "1202131426886762"
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "Type": "Task"
+        },
+        "ListExecutions": {
+            "Next": "Modulo",
+            "Parameters": {
+                "StateMachineArn.$": "$$.StateMachine.Id",
+                "StatusFilter": "SUCCEEDED"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:sfn:listExecutions",
+            "ResultPath": "$.executions",
+            "Type": "Task"
+        },
+        "Modulo": {
+            "Next": "Call out to API",
+            "Parameters": {
+                "FunctionName": "${ModuloFunctionName}",
+                "Payload.$": "$"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.userId",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "Type": "Task"
+        }
+    }
+}

@@ -1,0 +1,62 @@
+{
+    "StartAt": "CreateStackSetInstances",
+    "States": {
+        "CreateStackSetInstances": {
+            "End": true,
+            "ItemsPath": "$.stacksets",
+            "Iterator": {
+                "StartAt": "CreateUpdateDeleteStackInstances",
+                "States": {
+                    "CreateUpdateDeleteStackInstances": {
+                        "Next": "VerifyStackInstanceStatus",
+                        "Resource": "CreateUpdateDeleteStackInstances.Arn",
+                        "Retry": [
+                            {
+                                "BackoffRate": 1.1,
+                                "ErrorEquals": [
+                                    "OperationInProgressException",
+                                    "ClientError"
+                                ],
+                                "IntervalSeconds": 120,
+                                "MaxAttempts": 30
+                            }
+                        ],
+                        "Type": "Task"
+                    },
+                    "Done": {
+                        "End": true,
+                        "Type": "Pass"
+                    },
+                    "IsStackSetInstanceReady": {
+                        "Choices": [
+                            {
+                                "BooleanEquals": false,
+                                "Next": "VerifyStackInstanceStatus",
+                                "Variable": "$.stackset_instance_ready"
+                            }
+                        ],
+                        "Default": "Done",
+                        "Type": "Choice"
+                    },
+                    "VerifyStackInstanceStatus": {
+                        "Next": "IsStackSetInstanceReady",
+                        "Resource": "VerifyStackInstanceStatus.Arn",
+                        "Retry": [
+                            {
+                                "BackoffRate": 1.1,
+                                "ErrorEquals": [
+                                    "OperationInProgressException",
+                                    "ClientError"
+                                ],
+                                "IntervalSeconds": 120,
+                                "MaxAttempts": 30
+                            }
+                        ],
+                        "Type": "Task"
+                    }
+                }
+            },
+            "Type": "Map"
+        }
+    }
+}

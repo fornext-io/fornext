@@ -1,0 +1,399 @@
+{
+    "Comment": "Orechestrate Glue Catalog table create/update based on flow execution.",
+    "StartAt": "SetDatabaseAndContext",
+    "States": {
+        "AddPartition?": {
+            "Choices": [
+                {
+                    "And": [
+                        {
+                            "IsPresent": true,
+                            "Variable": "$.Config.detail['execution-id']"
+                        },
+                        {
+                            "StringEquals": "Execution Successful",
+                            "Variable": "$.Config.detail['status']"
+                        },
+                        {
+                            "Not": {
+                                "StringEquals": "0",
+                                "Variable": "$.Config.detail['num-of-records-processed']"
+                            }
+                        }
+                    ],
+                    "Next": "SingleFileAggregation?"
+                }
+            ],
+            "Default": "Success",
+            "Type": "Choice"
+        },
+        "CSVSerdeInfo": {
+            "Next": "Map",
+            "Parameters": {
+                "Parameters": {
+                    "field.delim": ",",
+                    "paths.$": "$.FlowConfig.Tasks[?(@.TaskType == 'Map')].DestinationField"
+                },
+                "SerializationLibrary": "org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe"
+            },
+            "ResultPath": "$.TableInput.StorageDescriptor.SerdeInfo",
+            "Type": "Pass"
+        },
+        "CleanUpError": {
+            "Next": "DescribeFlow",
+            "Parameters": {
+                "Config.$": "$.Config"
+            },
+            "Type": "Pass"
+        },
+        "ConfigureDestination": {
+            "Next": "CreateNewPartition",
+            "Parameters": {
+                "Columns.$": "$.TableInput.StorageDescriptor.Columns",
+                "Compressed.$": "$.TableInput.StorageDescriptor.Compressed",
+                "InputFormat.$": "$.TableInput.StorageDescriptor.InputFormat",
+                "Location.$": "States.Format('{}{}', $.TableInput.StorageDescriptor.Location, $.Config.detail['execution-id'])",
+                "OutputFormat.$": "$.TableInput.StorageDescriptor.OutputFormat",
+                "SerdeInfo.$": "$.TableInput.StorageDescriptor.SerdeInfo"
+            },
+            "ResultPath": "$.TableInput.StorageDescriptor",
+            "Type": "Pass"
+        },
+        "CreateDatabase": {
+            "Next": "CleanUpError",
+            "Parameters": {
+                "DatabaseInput": {
+                    "Name.$": "$.Config.Database"
+                }
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:createDatabase",
+            "ResultPath": null,
+            "Type": "Task"
+        },
+        "CreateMainPartition": {
+            "Next": "Success",
+            "Parameters": {
+                "DatabaseName.$": "$.Config.Database",
+                "PartitionInput": {
+                    "StorageDescriptor.$": "$.TableInput.StorageDescriptor",
+                    "Values.$": "States.Array($.Config.TableName)"
+                },
+                "TableName.$": "$.Config.TableName"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:createPartition",
+            "Type": "Task"
+        },
+        "CreateNewPartition": {
+            "Next": "Success",
+            "Parameters": {
+                "DatabaseName.$": "$.Config.Database",
+                "PartitionInput": {
+                    "StorageDescriptor.$": "$.TableInput.StorageDescriptor",
+                    "Values.$": "States.Array($.Config.detail['execution-id'])"
+                },
+                "TableName.$": "$.Config.TableName"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:createPartition",
+            "Type": "Task"
+        },
+        "CreateTable": {
+            "Next": "AddPartition?",
+            "Parameters": {
+                "DatabaseName.$": "$.Config.Database",
+                "TableInput.$": "$.TableInput"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:createTable",
+            "ResultPath": null,
+            "Type": "Task"
+        },
+        "DatabaseExist?": {
+            "Catch": [
+                {
+                    "Comment": "Create Glue Database",
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "CreateDatabase",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "Next": "DescribeFlow",
+            "Parameters": {
+                "Name.$": "$.Config.Database"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:getDatabase",
+            "ResultPath": null,
+            "Type": "Task"
+        },
+        "DescribeFlow": {
+            "Next": "S3AsDestination?",
+            "Parameters": {
+                "FlowName.$": "$.Config.detail['flow-name']"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:appflow:describeFlow",
+            "ResultPath": "$.FlowConfig",
+            "Type": "Task"
+        },
+        "DestinationFileFormatEvaluator": {
+            "Choices": [
+                {
+                    "Next": "CSVSerdeInfo",
+                    "StringEquals": "CSV",
+                    "Variable": "$.FlowConfig.DestinationFlowConfigList[0].DestinationConnectorProperties['S3'].S3OutputFormatConfig.FileType"
+                },
+                {
+                    "Next": "ParquetSerdeInfo",
+                    "StringEquals": "PARQUET",
+                    "Variable": "$.FlowConfig.DestinationFlowConfigList[0].DestinationConnectorProperties['S3'].S3OutputFormatConfig.FileType"
+                }
+            ],
+            "Default": "JsonSerdeInfo",
+            "Type": "Choice"
+        },
+        "GenerateTableDefinition": {
+            "Next": "DestinationFileFormatEvaluator",
+            "Parameters": {
+                "Config.$": "$.Config",
+                "FlowConfig.$": "$.FlowConfig",
+                "TableInput": {
+                    "Description": "Created by AmazonAppFlow",
+                    "Name.$": "$.Config.TableName",
+                    "Parameters": {
+                        "classification.$": "$.FlowConfig.DestinationFlowConfigList[0].DestinationConnectorProperties['S3'].S3OutputFormatConfig.FileType",
+                        "compressionType": "none",
+                        "typeOfData": "file"
+                    },
+                    "PartitionKeys": [
+                        {
+                            "Name": "partition_0",
+                            "Type": "string"
+                        }
+                    ],
+                    "Retention": 0,
+                    "StorageDescriptor": {
+                        "BucketColumns": [],
+                        "Columns.$": "$.FlowConfig.Tasks[?(@.TaskType == 'Map')]",
+                        "Compressed": false,
+                        "InputFormat": "org.apache.hadoop.mapred.TextInputFormat",
+                        "Location.$": "States.Format('{}/{}/', $.Config.detail['destination-object'], $.FlowConfig.FlowName)",
+                        "NumberOfBuckets": -1,
+                        "OutputFormat": "org.apache.hadoop.hive.ql.io.HiveIgnoreKeyTextOutputFormat",
+                        "SortColumns": [],
+                        "StoredAsSubDirectories": false
+                    },
+                    "TableType": "EXTERNAL_TABLE"
+                }
+            },
+            "Type": "Pass"
+        },
+        "IsPartitionExist?": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "CreateMainPartition",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "Next": "Success",
+            "Parameters": {
+                "DatabaseName.$": "$.Config.Database",
+                "PartitionValues.$": "States.Array($.Config.TableName)",
+                "TableName.$": "$.Config.TableName"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:getPartition",
+            "ResultPath": null,
+            "Type": "Task"
+        },
+        "JsonSerdeInfo": {
+            "Next": "Map",
+            "Parameters": {
+                "Parameters": {
+                    "paths.$": "$.FlowConfig.Tasks[?(@.TaskType == 'Map')].DestinationField"
+                },
+                "SerializationLibrary": "org.openx.data.jsonserde.JsonSerDe"
+            },
+            "ResultPath": "$.TableInput.StorageDescriptor.SerdeInfo",
+            "Type": "Pass"
+        },
+        "Map": {
+            "ItemsPath": "$.TableInput.StorageDescriptor.Columns",
+            "Iterator": {
+                "StartAt": "KnownFIleFormat?",
+                "States": {
+                    "1:1 mapping": {
+                        "End": true,
+                        "Parameters": {
+                            "Name.$": "$.DestinationField",
+                            "Type.$": "$.TaskProperties.SOURCE_DATA_TYPE"
+                        },
+                        "Type": "Pass"
+                    },
+                    "Cast to String": {
+                        "End": true,
+                        "Parameters": {
+                            "Name.$": "$.DestinationField",
+                            "Type": "string"
+                        },
+                        "Type": "Pass"
+                    },
+                    "KnownFIleFormat?": {
+                        "Choices": [
+                            {
+                                "Next": "1:1 mapping",
+                                "Or": [
+                                    {
+                                        "StringEquals": "boolean",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "double",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "int",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "date",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "byte",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "short",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "integer",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "long",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "float",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "decimal",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    },
+                                    {
+                                        "StringEquals": "timestamp",
+                                        "Variable": "$.TaskProperties.DESTINATION_DATA_TYPE"
+                                    }
+                                ]
+                            }
+                        ],
+                        "Default": "Cast to String",
+                        "Type": "Choice"
+                    }
+                }
+            },
+            "Next": "TableExist?",
+            "ResultPath": "$.TableInput.StorageDescriptor.Columns",
+            "Type": "Map"
+        },
+        "ParquetSerdeInfo": {
+            "Next": "Map",
+            "Parameters": {
+                "BucketColumns": [],
+                "Columns.$": "$.FlowConfig.Tasks[?(@.TaskType == 'Map')]",
+                "Compressed": false,
+                "InputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat",
+                "Location.$": "States.Format('s3://{}/{}/', $.FlowConfig.DestinationFlowConfigList[0].DestinationConnectorProperties['S3'].BucketName, $.FlowConfig.FlowName)",
+                "NumberOfBuckets": -1,
+                "OutputFormat": "org.apache.hadoop.hive.ql.io.parquet.MapredParquetOutputFormat",
+                "SerdeInfo": {
+                    "Parameters": {
+                        "serialization.format": "1"
+                    },
+                    "SerializationLibrary": "org.apache.hadoop.hive.ql.io.parquet.serde.ParquetHiveSerDe"
+                },
+                "SortColumns": [],
+                "StoredAsSubDirectories": false
+            },
+            "ResultPath": "$.TableInput.StorageDescriptor",
+            "Type": "Pass"
+        },
+        "S3AsDestination?": {
+            "Choices": [
+                {
+                    "Next": "GenerateTableDefinition",
+                    "StringEquals": "S3",
+                    "Variable": "$.FlowConfig.DestinationFlowConfigList[0].ConnectorType"
+                }
+            ],
+            "Default": "S3NotDestination",
+            "Type": "Choice"
+        },
+        "S3NotDestination": {
+            "Cause": "Failed to create Glue table. Flow destination must be an S3 bucket.",
+            "Error": "IncompatibleDestination",
+            "Type": "Fail"
+        },
+        "SetDatabaseAndContext": {
+            "Next": "DatabaseExist?",
+            "Parameters": {
+                "Config": {
+                    "Database": "${AWSGlueDatabaseName}",
+                    "TableName.$": "$.detail['flow-name']",
+                    "detail.$": "$.detail"
+                }
+            },
+            "Type": "Pass"
+        },
+        "SingleFileAggregation?": {
+            "Choices": [
+                {
+                    "Next": "IsPartitionExist?",
+                    "StringEquals": "SingleFile",
+                    "Variable": "$.FlowConfig.DestinationFlowConfigList[0].DestinationConnectorProperties.S3.S3OutputFormatConfig.AggregationConfig.AggregationType"
+                }
+            ],
+            "Default": "ConfigureDestination",
+            "Type": "Choice"
+        },
+        "Success": {
+            "Type": "Succeed"
+        },
+        "TableExist?": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "States.ALL"
+                    ],
+                    "Next": "CreateTable",
+                    "ResultPath": "$.error"
+                }
+            ],
+            "Comment": "$.error",
+            "Next": "UpdateTable",
+            "Parameters": {
+                "DatabaseName.$": "$.Config.Database",
+                "Name.$": "$.Config.TableName"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:getTable",
+            "ResultPath": null,
+            "ResultSelector": {
+                "Table.$": "$.Table"
+            },
+            "Type": "Task"
+        },
+        "UpdateTable": {
+            "Next": "AddPartition?",
+            "Parameters": {
+                "DatabaseName.$": "$.Config.Database",
+                "TableInput.$": "$.TableInput"
+            },
+            "Resource": "arn:aws:states:::aws-sdk:glue:updateTable",
+            "ResultPath": null,
+            "Type": "Task"
+        }
+    }
+}

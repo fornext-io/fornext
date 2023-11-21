@@ -1,0 +1,93 @@
+{
+    "Comment": "Contrived Valid Example that should have all State types",
+    "StartAt": "Pass",
+    "States": {
+        "Choice": {
+            "Choices": [
+                {
+                    "Next": "Public",
+                    "Not": {
+                        "StringEquals": "Private",
+                        "Variable": "$.type.foo.bar"
+                    }
+                },
+                {
+                    "Next": "ValueIsZero",
+                    "NumericEquals": 0,
+                    "Variable": "$.value"
+                },
+                {
+                    "And": [
+                        {
+                            "NumericGreaterThanEquals": 20.5,
+                            "Variable": "$.value"
+                        },
+                        {
+                            "NumericLessThan": 30,
+                            "Variable": "$.value"
+                        }
+                    ],
+                    "Next": "ValueInTwenties"
+                }
+            ],
+            "Default": "DefaultState",
+            "Type": "Choice"
+        },
+        "Fail": {
+            "Error": "ERROR",
+            "Type": "Fail"
+        },
+        "Parallel": {
+            "Type": "Parallel"
+        },
+        "Pass": {
+            "End": true,
+            "Result": {
+                "x": 0.1337,
+                "y": 3.14159
+            },
+            "ResultPath": "$.coords",
+            "Type": "Pass"
+        },
+        "SimpleTask": {
+            "Comment": "This is a comment",
+            "End": true,
+            "Resource": "asd",
+            "Type": "Task"
+        },
+        "Succeed": {
+            "Type": "Succeed"
+        },
+        "Task": {
+            "Catch": [
+                {
+                    "ErrorEquals": [
+                        "CustomError1",
+                        "CustomError2"
+                    ],
+                    "Next": "Pass",
+                    "ResultPath": "$.asd"
+                }
+            ],
+            "End": true,
+            "Resource": "asd",
+            "Retry": [
+                {
+                    "BackoffRate": 2.5,
+                    "ErrorEquals": [
+                        "CustomError1",
+                        "CustomError2"
+                    ],
+                    "IntervalSeconds": 3,
+                    "MaxAttempts": 10
+                }
+            ],
+            "Type": "Task"
+        },
+        "Wait": {
+            "End": true,
+            "Seconds": 10,
+            "Type": "Wait"
+        }
+    }
+}

@@ -1,0 +1,76 @@
+{
+    "Comment": "A state machine that orchestrates business rules execution and there by auditing the same",
+    "StartAt": "Audit Request",
+    "States": {
+        "Audit Request": {
+            "InputPath": "$",
+            "Next": "Execute Ruleset",
+            "Parameters": {
+                "FunctionName": "${AuditLambaPath}",
+                "Payload.$": "$"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.audit",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "Type": "Task"
+        },
+        "Audit Response": {
+            "End": true,
+            "InputPath": "$",
+            "OutputPath": "$.finalresponse.Payload.body",
+            "Parameters": {
+                "FunctionName": "${AuditLambaPath}",
+                "Payload.$": "$"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.apiresponse",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "Type": "Task"
+        },
+        "Execute Ruleset": {
+            "InputPath": "$",
+            "Next": "Audit Response",
+            "Parameters": {
+                "FunctionName": "${ExecuteRulesetLambdaPath}",
+                "Payload.$": "$"
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "ResultPath": "$.finalresponse",
+            "Retry": [
+                {
+                    "BackoffRate": 2,
+                    "ErrorEquals": [
+                        "Lambda.ServiceException",
+                        "Lambda.AWSLambdaException",
+                        "Lambda.SdkClientException"
+                    ],
+                    "IntervalSeconds": 2,
+                    "MaxAttempts": 6
+                }
+            ],
+            "Type": "Task"
+        }
+    }
+}

@@ -1,0 +1,193 @@
+{
+    "Comment": "Synchronize two Amazon S3 buckets.",
+    "StartAt": "FindBucketRegions",
+    "States": {
+        "BucketRegionsNotEqualFailure": {
+            "Cause": "The source and destination buckets have different regions. This is currently not supported.",
+            "Error": "BucketRegionsNotEqualError",
+            "Type": "Fail"
+        },
+        "CombineRegionOutputs": {
+            "InputPath": "$",
+            "Next": "ValidateInput",
+            "OutputPath": "$",
+            "Resource": "combine_dicts",
+            "ResultPath": "$",
+            "TimeoutSeconds": 15,
+            "Type": "Task"
+        },
+        "ConfirmInputValid": {
+            "Choices": [
+                {
+                    "BooleanEquals": true,
+                    "Next": "ProcessBuckets",
+                    "Variable": "$.regionsAreSame"
+                }
+            ],
+            "Default": "BucketRegionsNotEqualFailure",
+            "Type": "Choice"
+        },
+        "FindBucketRegions": {
+            "Branches": [
+                {
+                    "StartAt": "FindRegionForSourceBucket",
+                    "States": {
+                        "FindRegionForSourceBucket": {
+                            "End": true,
+                            "InputPath": "$.source",
+                            "OutputPath": "$",
+                            "Resource": "get_bucket_location",
+                            "ResultPath": "$.sourceRegion",
+                            "TimeoutSeconds": 15,
+                            "Type": "Task"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "FindRegionForDestinationBucket",
+                    "States": {
+                        "FindRegionForDestinationBucket": {
+                            "End": true,
+                            "InputPath": "$.destination",
+                            "OutputPath": "$",
+                            "Resource": "get_bucket_location",
+                            "ResultPath": "$.destinationRegion",
+                            "TimeoutSeconds": 15,
+                            "Type": "Task"
+                        }
+                    }
+                }
+            ],
+            "InputPath": "$",
+            "Next": "CombineRegionOutputs",
+            "OutputPath": "$",
+            "ResultPath": "$",
+            "Type": "Parallel"
+        },
+        "ProcessBuckets": {
+            "Branches": [
+                {
+                    "StartAt": "InjectSourceBucket",
+                    "States": {
+                        "CopySourceKeys": {
+                            "InputPath": "$",
+                            "Next": "EvaluateCopyListToken",
+                            "OutputPath": "$",
+                            "Resource": "copy_keys",
+                            "ResultPath": null,
+                            "Retry": [
+                                {
+                                    "ErrorEquals": [
+                                        "Lambda.Unknown",
+                                        "States.Timeout"
+                                    ],
+                                    "IntervalSeconds": 0,
+                                    "MaxAttempts": 3
+                                }
+                            ],
+                            "TimeoutSeconds": 305,
+                            "Type": "Task"
+                        },
+                        "EvaluateCopyListToken": {
+                            "Choices": [
+                                {
+                                    "Next": "UpdateSourceKeyList",
+                                    "Not": {
+                                        "StringEquals": "",
+                                        "Variable": "$.listResult.token"
+                                    }
+                                }
+                            ],
+                            "Default": "FinishCopyBranch",
+                            "Type": "Choice"
+                        },
+                        "FinishCopyBranch": {
+                            "End": true,
+                            "InputPath": null,
+                            "Type": "Pass"
+                        },
+                        "InjectSourceBucket": {
+                            "Next": "UpdateSourceKeyList",
+                            "OutputPath": "$",
+                            "Result": "source",
+                            "ResultPath": "$.listBucket",
+                            "Type": "Pass"
+                        },
+                        "UpdateSourceKeyList": {
+                            "InputPath": "$",
+                            "Next": "CopySourceKeys",
+                            "OutputPath": "$",
+                            "Resource": "list_bucket",
+                            "ResultPath": "$.listResult",
+                            "TimeoutSeconds": 65,
+                            "Type": "Task"
+                        }
+                    }
+                },
+                {
+                    "StartAt": "InjectDestinationBucket",
+                    "States": {
+                        "DeleteOrphanedKeys": {
+                            "InputPath": "$",
+                            "Next": "EvaluateDestinationListToken",
+                            "OutputPath": "$",
+                            "Resource": "delete_orphaned_keys",
+                            "ResultPath": null,
+                            "TimeoutSeconds": 305,
+                            "Type": "Task"
+                        },
+                        "EvaluateDestinationListToken": {
+                            "Choices": [
+                                {
+                                    "Next": "UpdateDestinationKeyList",
+                                    "Not": {
+                                        "StringEquals": "",
+                                        "Variable": "$.listResult.token"
+                                    }
+                                }
+                            ],
+                            "Default": "FinishDeleteBranch",
+                            "Type": "Choice"
+                        },
+                        "FinishDeleteBranch": {
+                            "End": true,
+                            "InputPath": null,
+                            "Type": "Pass"
+                        },
+                        "InjectDestinationBucket": {
+                            "Next": "UpdateDestinationKeyList",
+                            "OutputPath": "$",
+                            "Result": "destination",
+                            "ResultPath": "$.listBucket",
+                            "Type": "Pass"
+                        },
+                        "UpdateDestinationKeyList": {
+                            "InputPath": "$",
+                            "Next": "DeleteOrphanedKeys",
+                            "OutputPath": "$",
+                            "Resource": "list_bucket",
+                            "ResultPath": "$.listResult",
+                            "TimeoutSeconds": 65,
+                            "Type": "Task"
+                        }
+                    }
+                }
+            ],
+            "Next": "Success",
+            "Type": "Parallel"
+        },
+        "Success": {
+            "Type": "Succeed"
+        },
+        "ValidateInput": {
+            "InputPath": "$",
+            "Next": "ConfirmInputValid",
+            "OutputPath": "$",
+            "Resource": "validate_input",
+            "ResultPath": "$.regionsAreSame",
+            "TimeoutSeconds": 15,
+            "Type": "Task"
+        }
+    },
+    "TimeoutSeconds": 1800
+}

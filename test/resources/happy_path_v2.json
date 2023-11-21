@@ -1,0 +1,68 @@
+{
+    "Comment": "v2 - Moderate uploaded images",
+    "StartAt": "Moderator",
+    "States": {
+        "Moderation Result?": {
+            "Choices": [
+                {
+                    "BooleanEquals": true,
+                    "Next": "Resizer",
+                    "Variable": "$.moderationResult"
+                },
+                {
+                    "BooleanEquals": false,
+                    "Next": "RecordFailState",
+                    "Variable": "$.moderationResult"
+                }
+            ],
+            "Default": "RecordFailState",
+            "Type": "Choice"
+        },
+        "Moderator": {
+            "Next": "Moderation Result?",
+            "Resource": "${ModeratorFunctionArn}",
+            "Type": "Task"
+        },
+        "Publish": {
+            "End": true,
+            "Parameters": {
+                "FunctionName": "${PublishFunctionArn}",
+                "Payload": {
+                    "Input.$": "$"
+                }
+            },
+            "Resource": "arn:aws:states:::lambda:invoke",
+            "Type": "Task"
+        },
+        "RecordFailState": {
+            "End": true,
+            "Parameters": {
+                "ExpressionAttributeValues": {
+                    ":detail": {
+                        "S.$": "$.workflowDetail"
+                    },
+                    ":newStatus": {
+                        "S": "FAILED_MODERATION"
+                    }
+                },
+                "Key": {
+                    "PK": {
+                        "S": "workflow"
+                    },
+                    "SK": {
+                        "S.$": "$.detail.ID"
+                    }
+                },
+                "TableName": "${DDBTable}",
+                "UpdateExpression": "set objStatus = :newStatus, detail = :detail"
+            },
+            "Resource": "${DDBUpdateItem}",
+            "Type": "Task"
+        },
+        "Resizer": {
+            "Next": "Publish",
+            "Resource": "${ResizerFunctionArn}",
+            "Type": "Task"
+        }
+    }
+}
