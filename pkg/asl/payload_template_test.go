@@ -39,8 +39,7 @@ func TestApplyPayloadTemplateOnObject(t *testing.T) {
 				"flagged": true,
 				"parts": map[string]interface{}{
 					"first": 0,
-					// NOTE: this is an bug, the jp return it with Reverse order
-					"last3": []interface{}{50, 40, 30},
+					"last3": []interface{}{30, 40, 50},
 				},
 				"weekday": "TUESDAY",
 				// "formattedOutput": "Today is TUESDAY",
