@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.15.2
 	github.com/lsytj0413/ena v0.1.1
-	github.com/ohler55/ojg v1.19.3
+	github.com/ohler55/ojg v1.20.3
 	github.com/onsi/gomega v1.27.5
 	google.golang.org/genproto v0.0.0-20230327215041-6ac7f18bb9d5
 	google.golang.org/grpc v1.54.0
