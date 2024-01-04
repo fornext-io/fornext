@@ -2,28 +2,67 @@
 package executor
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
-	"github.com/fornext-io/fornext/pkg/asl"
+	"github.com/fornext-io/fornext/pkg/fsl"
+	"github.com/fornext-io/fornext/pkg/utils"
 	"github.com/google/uuid"
 )
 
+type stateContextHolder struct {
+	input           []byte
+	contextData     []byte
+	effectiveInput  []byte
+	output          []byte
+	effectiveOutput []byte
+}
+
+var (
+	_ fsl.StateContext = (*stateContextHolder)(nil)
+)
+
+func (h *stateContextHolder) Input() []byte {
+	return h.input
+}
+
+func (h *stateContextHolder) ContextData() []byte {
+	return h.contextData
+}
+
+func (h *stateContextHolder) EffectiveInput() []byte {
+	return h.effectiveInput
+}
+
+func (h *stateContextHolder) Output() []byte {
+	return h.output
+}
+
+func (h *stateContextHolder) EffectiveOutput() []byte {
+	return h.effectiveOutput
+}
+
 // Executor ...
 type Executor struct {
-	sm  *asl.StateMachine
+	sm  *fsl.StateMachine
 	ctx *ExecutionContext
 
 	activityContextes  map[string]*ActivityContext
 	branchContextes    map[string]*BranchContext
 	iterationContextes map[string]*IterationContext
+	taskContextes      map[string]*TaskContext
 
 	done chan interface{}
 	ev   chan interface{}
+
+	c *hybridLogicalClock
 }
 
 // NewExecutor ...
-func NewExecutor(sm *asl.StateMachine) *Executor {
+func NewExecutor(sm *fsl.StateMachine) *Executor {
 	v := &Executor{
 		sm:                 sm,
 		done:               make(chan interface{}),
@@ -31,14 +70,20 @@ func NewExecutor(sm *asl.StateMachine) *Executor {
 		activityContextes:  map[string]*ActivityContext{},
 		branchContextes:    map[string]*BranchContext{},
 		iterationContextes: map[string]*IterationContext{},
+		taskContextes:      map[string]*TaskContext{},
+		c:                  newHybridLogicalClock(),
 	}
 	return v
 }
 
 // Run ...
-func (e *Executor) Run() *ExecutionContext {
+func (e *Executor) Run(input []byte) *ExecutionContext {
+	t := e.c.Next()
 	e.ev <- &StartExecutionCommand{
-		ID: uuid.NewString(),
+		ID:         "/tenant/namespace/e/" + t.AsString(),
+		WorkflowID: "example",
+		Input:      input,
+		Timestamp:  t.AsUint64(),
 	}
 	go e.run()
 
@@ -51,7 +96,7 @@ func (e *Executor) WaitExecutionDone() *ExecutionContext {
 	return e.ctx
 }
 
-func findState(sm *asl.StateMachine, stateName string) asl.State {
+func findState(sm *fsl.StateMachine, stateName string) fsl.State {
 	vv, ok := sm.States[stateName]
 	if ok {
 		return vv
@@ -67,9 +112,9 @@ func findState(sm *asl.StateMachine, stateName string) asl.State {
 	return nil
 }
 
-func findStateInState(ss asl.State, stateName string) asl.State {
+func findStateInState(ss fsl.State, stateName string) fsl.State {
 	switch sss := ss.(type) {
-	case *asl.ParallelState:
+	case *fsl.ParallelState:
 		for _, branch := range sss.Branches {
 			vv, ok := branch.States[stateName]
 			if ok {
@@ -83,7 +128,7 @@ func findStateInState(ss asl.State, stateName string) asl.State {
 				}
 			}
 		}
-	case *asl.MapState:
+	case *fsl.MapState:
 		vv, ok := sss.ItemProcessor.States[stateName]
 		if ok {
 			return vv
@@ -108,11 +153,18 @@ func (e *Executor) run() {
 				ID: evv.ID,
 			}
 			e.ctx = &ExecutionContext{
-				ID: evv.ID,
+				ID:         evv.ID,
+				Input:      evv.Input,
+				Status:     "Running",
+				Timestamp:  evv.Timestamp,
+				WorkflowID: evv.WorkflowID,
 			}
+			t := e.c.Next()
 			e.ev <- &StartStateCommand{
-				ActivityID: uuid.NewString(),
+				ActivityID: evv.ID + "/" + t.AsString(),
 				StateName:  e.sm.StartAt,
+				Input:      evv.Input,
+				Timestamp:  t.AsUint64(),
 			}
 		case *StartStateCommand:
 			e.processStartStateCommand(evv)
@@ -135,13 +187,14 @@ func (e *Executor) run() {
 		case *CompleteExecutionCommand:
 			e.processCompleteExecutionCommand(evv)
 		default:
-			fmt.Printf("receieve event: %#v\n", ev)
+			slog.InfoContext(context.Background(), "receieve event", slog.Any("Event", ev))
 		}
 	}
 }
 
 func (e *Executor) processStartStateCommand(cmd *StartStateCommand) {
-	fmt.Printf("start state: %+v\n", cmd)
+	slog.InfoContext(context.Background(), "start state", slog.Any("Command", cmd), slog.String("Input", string(cmd.Input)))
+
 	e.ev <- &StateStartedEvent{
 		ActivityID: cmd.ActivityID,
 	}
@@ -151,63 +204,50 @@ func (e *Executor) processStartStateCommand(cmd *StartStateCommand) {
 		StateName:         cmd.StateName,
 		ParentBranchID:    cmd.ParentBranchID,
 		ParentIterationID: cmd.ParentIterationID,
+		Input:             cmd.Input,
 	}
 	state := findState(e.sm, cmd.StateName)
 	switch sss := state.(type) {
-	case *asl.TaskState:
-		e.ev <- &CreateTaskCommand{
-			ID:         uuid.NewString(),
-			ActivityID: cmd.ActivityID,
-			Resource:   sss.Resource,
+	case *fsl.TaskState:
+		err := (&taskStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-	case *asl.WaitState:
-		e.ev <- &CreateTaskCommand{
-			ID:         uuid.NewString(),
-			ActivityID: cmd.ActivityID,
-			Resource:   "__sleep",
+	case *fsl.WaitState:
+		err := (&waitStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-	case *asl.PassState:
-		e.ev <- &CompleteStateCommand{
-			ActivityID: cmd.ActivityID,
+	case *fsl.PassState:
+		err := (&paasStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-	case *asl.ChoiceState:
-		e.ev <- &CompleteStateCommand{
-			ActivityID: cmd.ActivityID,
+
+	case *fsl.ChoiceState:
+		err := (&choiceStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-	case *asl.SucceedState:
-		e.ev <- &CompleteStateCommand{
-			ActivityID: cmd.ActivityID,
+	case *fsl.SucceedState:
+		err := (&succeedStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-	case *asl.FailState:
-		e.ev <- &CompleteStateCommand{
-			ActivityID: cmd.ActivityID,
+	case *fsl.FailState:
+		err := (&failStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-	case *asl.ParallelState:
-		e.activityContextes[cmd.ActivityID].BranchStatus = &ActivityBranchStatus{
-			Max:  len(sss.Branches),
-			Done: 0,
+	case *fsl.ParallelState:
+		err := (&parallelStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-		for i := range sss.Branches {
-			e.ev <- &StartBranchCommand{
-				BranchID:   uuid.NewString(),
-				ActivityID: cmd.ActivityID,
-				Index:      i,
-			}
-		}
-	case *asl.MapState:
-		e.activityContextes[cmd.ActivityID].IterationStatus = &ActivityIterationStatus{
-			Max:  2,
-			Done: 0,
-		}
-		e.ev <- &StartIterationCommand{
-			IterationID: uuid.NewString(),
-			ActivityID:  cmd.ActivityID,
-			Index:       0,
-		}
-		e.ev <- &StartIterationCommand{
-			IterationID: uuid.NewString(),
-			ActivityID:  cmd.ActivityID,
-			Index:       1,
+	case *fsl.MapState:
+		err := (&mapStateProcessor{}).StartState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
 	default:
 		panic(fmt.Errorf("unsupport state %T", state))
@@ -215,22 +255,24 @@ func (e *Executor) processStartStateCommand(cmd *StartStateCommand) {
 }
 
 func (e *Executor) processCreateTaskCommand(cmd *CreateTaskCommand) {
-	fmt.Printf("create task %+v\n", cmd)
 	e.ev <- &TaskCreatedEvent{
 		ID: cmd.ID,
+	}
+	e.taskContextes[cmd.ID] = &TaskContext{
+		ActivityID: cmd.ActivityID,
 	}
 
 	go func() {
 		if cmd.Resource == "__sleep" {
 			time.Sleep(5 * time.Second)
 			e.ev <- &CompleteTaskCommand{
-				TaskID:     cmd.ID,
-				ActivityID: cmd.ActivityID,
+				TaskID: cmd.ID,
+				Output: cmd.Input,
 			}
 		} else {
 			e.ev <- &CompleteTaskCommand{
-				TaskID:     cmd.ID,
-				ActivityID: cmd.ActivityID,
+				TaskID: cmd.ID,
+				Output: cmd.Input,
 			}
 		}
 	}()
@@ -243,214 +285,79 @@ func (e *Executor) processActivateTaskCommand(_ *ActivateTaskCommand) {
 func (e *Executor) processCompleteTaskCommand(cmd *CompleteTaskCommand) {
 	fmt.Printf("complete task command: %+v\n", cmd)
 
+	taskCtx := e.taskContextes[cmd.TaskID]
+
 	e.ev <- &TaskCompletedEvent{
 		TaskID: cmd.TaskID,
 	}
 	e.ev <- &CompleteStateCommand{
-		ActivityID: cmd.ActivityID,
+		ActivityID: taskCtx.ActivityID,
+		Output:     cmd.Output,
 	}
 }
 
+// 本地状态在什么时候修改？
+//  1. 发送消息之前，那么可能出现消息没有发送成功，需要回滚（其实不会出现这个问题，因为 command 是 determin 的）
+//  2. 关键是什么时候回复给客户？如果是 determin 的，那么无所谓
+//  3. 收到一个 cmd，然后记录到本地存储中（标记为还没有处理），然后发送给 scheduler + processor，调度（不同的 execution 可以并行）
+//     然后执行并记录本地状态，发送新的 command，删除旧的 command，处理下一个（不用等待发送成功？应该无需，可以直接开始处理下一个，不然要等待发送完成才能进行下一个的处理，延迟会很高；而且这里不等待是没有问题的，因为 cmd 是 determin 的，假设有新的 leader 启动，得到的状态也会是一致的），但是这里删除、修改是需要 transaction 的，避免修改成功，删除没成功，导致重启时 cmd 的重复处理
+//     另外，可能出现本地应用成功，然后重启重新成为 leader，但是 cmd & event 没有发送成功的情况，则需要将要发送的 cmd 保存到 kv，然后重新成为 leader 的时候重发
+//     对于 follower，则在收到 event 之后删除旧的 command
 func (e *Executor) processCompleteStateCommand(cmd *CompleteStateCommand) {
-	fmt.Printf("complete state command: %+v\n", cmd)
+	slog.InfoContext(context.Background(), "complete state command", slog.Any("Command", cmd), slog.String("Output", string(cmd.Output)))
 
 	e.ev <- &StateCompletedEvent{
 		ActivityID: cmd.ActivityID,
 	}
 	state := findState(e.sm, e.activityContextes[cmd.ActivityID].StateName)
-	at := e.activityContextes[cmd.ActivityID]
 
 	switch sss := state.(type) {
-	case *asl.TaskState:
-		if sss.End {
-			if at.ParentBranchID != nil {
-				// This is under an Parallel State
-				e.ev <- &CompleteBranchCommand{
-					BranchID: *at.ParentBranchID,
-				}
-				return
-			} else if at.ParentIterationID != nil {
-				e.ev <- &CompleteIterationCommand{
-					IterationID: *at.ParentIterationID,
-				}
-				return
-			}
-
-			e.ev <- &CompleteExecutionCommand{
-				ID: "",
-			}
-			return
+	case *fsl.TaskState:
+		err := (&taskStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-
-		e.ev <- &StartStateCommand{
-			ActivityID:        uuid.NewString(),
-			StateName:         sss.Next,
-			ParentBranchID:    at.ParentBranchID,
-			ParentIterationID: at.ParentIterationID,
+	case *fsl.WaitState:
+		err := (&waitStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-		return
-	case *asl.WaitState:
-		if sss.End {
-			if at.ParentBranchID != nil {
-				// This is under an Parallel State
-				e.ev <- &CompleteBranchCommand{
-					BranchID: *at.ParentBranchID,
-				}
-				return
-			} else if at.ParentIterationID != nil {
-				e.ev <- &CompleteIterationCommand{
-					IterationID: *at.ParentIterationID,
-				}
-				return
-			}
-
-			e.ev <- &CompleteExecutionCommand{
-				ID: "",
-			}
-			return
+	case *fsl.PassState:
+		err := (&paasStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-
-		e.ev <- &StartStateCommand{
-			ActivityID:        uuid.NewString(),
-			StateName:         sss.Next,
-			ParentBranchID:    at.ParentBranchID,
-			ParentIterationID: at.ParentIterationID,
+	case *fsl.ChoiceState:
+		err := (&choiceStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-		return
-	case *asl.PassState:
-		if sss.End {
-			if at.ParentBranchID != nil {
-				// This is under an Parallel State
-				e.ev <- &CompleteBranchCommand{
-					BranchID: *at.ParentBranchID,
-				}
-				return
-			} else if at.ParentIterationID != nil {
-				e.ev <- &CompleteIterationCommand{
-					IterationID: *at.ParentIterationID,
-				}
-				return
-			}
-
-			e.ev <- &CompleteExecutionCommand{
-				ID: "",
-			}
-			return
+	case *fsl.SucceedState:
+		err := (&succeedStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-
-		e.ev <- &StartStateCommand{
-			ActivityID:        uuid.NewString(),
-			StateName:         sss.Next,
-			ParentBranchID:    at.ParentBranchID,
-			ParentIterationID: at.ParentIterationID,
+	case *fsl.FailState:
+		err := (&failStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-		return
-	case *asl.ChoiceState:
-		e.ev <- &StartStateCommand{
-			ActivityID:        uuid.NewString(),
-			StateName:         *sss.Default,
-			ParentBranchID:    at.ParentBranchID,
-			ParentIterationID: at.ParentIterationID,
+	case *fsl.ParallelState:
+		err := (&parallelStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-	case *asl.SucceedState:
-		if at.ParentBranchID != nil {
-			// This is under an Parallel State
-			e.ev <- &CompleteBranchCommand{
-				BranchID: *at.ParentBranchID,
-			}
-			return
-		} else if at.ParentIterationID != nil {
-			e.ev <- &CompleteIterationCommand{
-				IterationID: *at.ParentIterationID,
-			}
-			return
+	case *fsl.MapState:
+		err := (&mapStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
+		if err != nil {
+			panic(err)
 		}
-
-		e.ev <- &CompleteExecutionCommand{
-			ID: "",
-		}
-		return
-	case *asl.FailState:
-		if at.ParentBranchID != nil {
-			// This is under an Parallel State
-			e.ev <- &CompleteBranchCommand{
-				BranchID: *at.ParentBranchID,
-			}
-			return
-		} else if at.ParentIterationID != nil {
-			e.ev <- &CompleteIterationCommand{
-				IterationID: *at.ParentIterationID,
-			}
-			return
-		}
-
-		e.ev <- &CompleteExecutionCommand{
-			ID: "",
-		}
-		return
-	case *asl.ParallelState:
-		if sss.End {
-			if at.ParentBranchID != nil {
-				// This is under an Parallel State
-				e.ev <- &CompleteBranchCommand{
-					BranchID: *at.ParentBranchID,
-				}
-				return
-			} else if at.ParentIterationID != nil {
-				e.ev <- &CompleteIterationCommand{
-					IterationID: *at.ParentIterationID,
-				}
-				return
-			}
-
-			e.ev <- &CompleteExecutionCommand{
-				ID: "",
-			}
-			return
-		}
-
-		e.ev <- &StartStateCommand{
-			ActivityID:        uuid.NewString(),
-			StateName:         sss.Next,
-			ParentBranchID:    at.ParentBranchID,
-			ParentIterationID: at.ParentIterationID,
-		}
-		return
-	case *asl.MapState:
-		if sss.End {
-			if at.ParentBranchID != nil {
-				// This is under an Parallel State
-				e.ev <- &CompleteBranchCommand{
-					BranchID: *at.ParentBranchID,
-				}
-				return
-			} else if at.ParentIterationID != nil {
-				e.ev <- &CompleteIterationCommand{
-					IterationID: *at.ParentIterationID,
-				}
-				return
-			}
-
-			e.ev <- &CompleteExecutionCommand{
-				ID: "",
-			}
-			return
-		}
-
-		e.ev <- &StartStateCommand{
-			ActivityID:        uuid.NewString(),
-			StateName:         sss.Next,
-			ParentBranchID:    at.ParentBranchID,
-			ParentIterationID: at.ParentIterationID,
-		}
-		return
 	default:
 		panic(fmt.Errorf("unsupport state %T", state))
 	}
 }
 
 func (e *Executor) processStartBranchCommand(cmd *StartBranchCommand) {
-	fmt.Printf("start branch: %v\n", cmd)
 	e.ev <- &BranchStartedEvent{
 		BranchID: cmd.BranchID,
 	}
@@ -458,35 +365,48 @@ func (e *Executor) processStartBranchCommand(cmd *StartBranchCommand) {
 		BranchID:   cmd.BranchID,
 		Index:      cmd.Index,
 		ActivityID: cmd.ActivityID,
+		Input:      cmd.Input,
 	}
 	at := e.activityContextes[cmd.ActivityID]
 
-	state := findState(e.sm, at.StateName).(*asl.ParallelState)
+	state := findState(e.sm, at.StateName).(*fsl.ParallelState)
 	e.ev <- &StartStateCommand{
 		StateName:         state.Branches[cmd.Index].StartAt,
 		ActivityID:        uuid.NewString(),
 		ParentBranchID:    &cmd.BranchID,
 		ParentIterationID: nil,
+		Input:             cmd.Input,
 	}
 }
 
 func (e *Executor) processCompleteBranchCommand(cmd *CompleteBranchCommand) {
-	fmt.Printf("complete branch: %v\n", cmd)
-
 	e.ev <- &BranchCompletedEvent{
 		BranchID: cmd.BranchID,
 	}
 	at := e.activityContextes[e.branchContextes[cmd.BranchID].ActivityID]
 	at.BranchStatus.Done++
+	// 此处还需要考虑顺序问题
+	at.BranchStatus.Output = append(at.BranchStatus.Output, cmd.Output)
+
 	if at.BranchStatus.Done == at.BranchStatus.Max {
+		// 拼接所有的 output 为列表
+		var output []interface{}
+		for _, oo := range at.BranchStatus.Output {
+			output = append(output, utils.MustUnmarshalJSON(oo))
+		}
+		outputBytes, err := json.Marshal(output)
+		if err != nil {
+			panic(err)
+		}
+
 		e.ev <- &CompleteStateCommand{
 			ActivityID: e.branchContextes[cmd.BranchID].ActivityID,
+			Output:     outputBytes,
 		}
 	}
 }
 
 func (e *Executor) processStartIterationCommand(cmd *StartIterationCommand) {
-	fmt.Printf("start iteration: %v\n", cmd)
 	e.ev <- &IterationStartedEvent{
 		IterationID: cmd.IterationID,
 	}
@@ -497,31 +417,48 @@ func (e *Executor) processStartIterationCommand(cmd *StartIterationCommand) {
 	}
 	at := e.activityContextes[cmd.ActivityID]
 
-	state := findState(e.sm, at.StateName).(*asl.MapState)
+	state := findState(e.sm, at.StateName).(*fsl.MapState)
 	e.ev <- &StartStateCommand{
 		StateName:         state.ItemProcessor.StartAt,
 		ActivityID:        uuid.NewString(),
 		ParentBranchID:    nil,
 		ParentIterationID: &cmd.IterationID,
+		Input:             cmd.Input,
 	}
 }
 
 func (e *Executor) processCompleteIterationCommand(cmd *CompleteIterationCommand) {
-	fmt.Printf("complete iteration: %v\n", cmd)
 	e.ev <- &IterationCompletedEvent{
 		IterationID: cmd.IterationID,
 	}
 	at := e.activityContextes[e.iterationContextes[cmd.IterationID].ActivityID]
 	at.IterationStatus.Done++
+	at.IterationStatus.Output = append(at.IterationStatus.Output, cmd.Output)
+
 	if at.IterationStatus.Done == at.IterationStatus.Max {
+		// 拼接所有的 output 为列表
+		var output []interface{}
+		for _, oo := range at.IterationStatus.Output {
+			output = append(output, utils.MustUnmarshalJSON(oo))
+		}
+		outputBytes, err := json.Marshal(output)
+		if err != nil {
+			panic(err)
+		}
+
 		e.ev <- &CompleteStateCommand{
 			ActivityID: e.iterationContextes[cmd.IterationID].ActivityID,
+			Output:     outputBytes,
 		}
 	}
 }
 
 func (e *Executor) processCompleteExecutionCommand(cmd *CompleteExecutionCommand) {
-	fmt.Printf("complete execution: %v\n", cmd)
+	slog.InfoContext(context.Background(),
+		"complete execution",
+		slog.Any("command", cmd),
+		slog.String("output", string(cmd.Output)),
+	)
 
 	close(e.done)
 }

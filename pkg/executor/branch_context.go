@@ -9,4 +9,6 @@ type BranchContext struct {
 
 	//
 	ActivityID string
+
+	Input []byte
 }

@@ -7,7 +7,10 @@
             "Next": "StateWait",
             "HeartbeatSeconds": 200,
             "Resource": "task1",
-            "TimeoutSeconds": 300
+            "TimeoutSeconds": 300,
+            "InputPath": "$.name",
+            "OutputPath": "$.result",
+            "ResultPath": "$.result"
         },
         "StateWait": {
             "Type": "Wait",
@@ -77,11 +80,15 @@
                         "End": true
                     }
                 }
+            },
+            "ResultSelector": {
+                "status": "succeed",
+                "output.$": "$"
             }
         },
         "StateChoice": {
             "Type": "Choice",
-            "Default": "StateFail",
+            "Default": "StateSucceed",
             "Choices": [
                 {
                     "Next": "StateFail",
