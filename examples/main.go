@@ -7,8 +7,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/fornext-io/fornext/pkg/asl"
 	"github.com/fornext-io/fornext/pkg/executor"
+	"github.com/fornext-io/fornext/pkg/fsl"
 	"github.com/fornext-io/fornext/test"
 )
 
@@ -18,14 +18,14 @@ func main() {
 		panic(err)
 	}
 
-	var sm asl.StateMachine
+	var sm fsl.StateMachine
 	err = json.Unmarshal(data, &sm)
 	if err != nil {
 		panic(err)
 	}
 
 	e := executor.NewExecutor(&sm)
-	e.Run()
+	e.Run([]byte(`{"name": "123", "data": 10}`))
 	ec := e.WaitExecutionDone()
 	fmt.Printf("id: %v\n", ec.ID)
 }

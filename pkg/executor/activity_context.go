@@ -6,6 +6,7 @@ type ActivityContext struct {
 	ID string
 
 	StateName string
+	Input     []byte
 
 	ParentBranchID    *string
 	ParentIterationID *string
@@ -16,12 +17,14 @@ type ActivityContext struct {
 
 // ActivityBranchStatus ...
 type ActivityBranchStatus struct {
-	Max  int
-	Done int
+	Max    int
+	Done   int
+	Output [][]byte
 }
 
 // ActivityIterationStatus ...
 type ActivityIterationStatus struct {
-	Max  int
-	Done int
+	Max    int
+	Done   int
+	Output [][]byte
 }

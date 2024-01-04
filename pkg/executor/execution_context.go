@@ -2,6 +2,13 @@ package executor
 
 // ExecutionContext ...
 type ExecutionContext struct {
-	// /{tenant}/{namespace}/execution/{id}
 	ID string
+
+	WorkflowID string
+
+	Input []byte
+
+	Timestamp uint64
+
+	Status string
 }
