@@ -3,13 +3,14 @@ package executor
 // StartIterationCommand is triggered when an MapState is started,
 // and this command will been replicated from leader to followers.
 type StartIterationCommand struct {
-	// /{tenant}/{namespace}/execution/{id}/activity/{id}/iteration/{id}
 	// IterationID is the identify of this iteration, it formated as
 	// `/{ActivityID}/i{id}`
 	// in which:
 	//  1. {ActivityID}: is the referenced activity
 	//  2. {id}: is the iteration index of current iteration, begin with 0
 	IterationID string
+
+	ExecutionID string
 
 	// Index is serial of this iteration in MapState.
 	Index int

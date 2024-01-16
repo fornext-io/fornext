@@ -5,7 +5,6 @@ import (
 	"log/slog"
 
 	"github.com/fornext-io/fornext/pkg/fsl"
-	"github.com/google/uuid"
 )
 
 type waitStateProcessor struct {
@@ -78,7 +77,8 @@ func (p *waitStateProcessor) CompleteState(ctx context.Context, cmd *CompleteSta
 	}
 
 	e.ev <- &StartStateCommand{
-		ActivityID:        uuid.NewString(), // TODO: add executionid in context
+		ActivityID:        at.ExecutionID + "/" + e.c.Next().AsString(),
+		ExecutionID:       at.ExecutionID,
 		StateName:         s.Next,
 		ParentBranchID:    at.ParentBranchID,
 		ParentIterationID: at.ParentIterationID,

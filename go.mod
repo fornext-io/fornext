@@ -3,9 +3,9 @@ module github.com/fornext-io/fornext
 go 1.21
 
 require (
+	github.com/cockroachdb/pebble v1.0.0
 	github.com/golang/mock v1.6.0
 	github.com/golang/protobuf v1.5.3
-	github.com/google/uuid v1.3.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.15.2
 	github.com/lsytj0413/ena v0.1.1
 	github.com/ohler55/ojg v1.20.3
@@ -21,7 +21,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/cockroachdb/errors v1.8.1 // indirect
 	github.com/cockroachdb/logtags v0.0.0-20190617123548-eb05cc24525f // indirect
-	github.com/cockroachdb/pebble v1.0.0 // indirect
 	github.com/cockroachdb/redact v1.0.8 // indirect
 	github.com/cockroachdb/sentry-go v0.6.1-cockroachdb.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
