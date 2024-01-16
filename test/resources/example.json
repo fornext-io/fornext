@@ -82,7 +82,7 @@
                 }
             },
             "ResultSelector": {
-                "status": "succeed",
+                "status1": "succeed",
                 "output.$": "$"
             }
         },
@@ -93,7 +93,7 @@
                 {
                     "Next": "StateFail",
                     "Variable": "$.status",
-                    "StringEquals": "failed"
+                    "IsPresent": false
                 }
             ]
         },

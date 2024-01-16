@@ -42,7 +42,11 @@ func (p *waitStateProcessor) CompleteState(ctx context.Context, cmd *CompleteSta
 		slog.String("ActivityID", cmd.ActivityID),
 	)
 
-	at := e.activityContextes[cmd.ActivityID]
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
+
 	output, err := s.ApplyOutput(ctx, &stateContextHolder{
 		input:          at.Input,
 		effectiveInput: nil,

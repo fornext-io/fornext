@@ -18,7 +18,11 @@ func (p *mapStateProcessor) StartState(ctx context.Context, cmd *StartStateComma
 		slog.String("ActivityID", cmd.ActivityID),
 	)
 
-	at := e.activityContextes[cmd.ActivityID]
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
+
 	input, err := s.ApplyInput(ctx, &stateContextHolder{
 		input:       cmd.Input,
 		contextData: []byte{},
@@ -37,6 +41,11 @@ func (p *mapStateProcessor) StartState(ctx context.Context, cmd *StartStateComma
 		Max:  len(inputObjs),
 		Done: 0,
 	}
+	err = Set(context.Background(), e.store, cmd.ActivityID, at)
+	if err != nil {
+		panic(err)
+	}
+
 	// 需要处理 0 个的情况
 	for i, obj := range inputObjs {
 		// 再应用 ItemSelector & ItemPath
@@ -61,7 +70,11 @@ func (p *mapStateProcessor) CompleteState(ctx context.Context, cmd *CompleteStat
 		slog.String("ActivityID", cmd.ActivityID),
 	)
 
-	at := e.activityContextes[cmd.ActivityID]
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
+
 	output, err := s.ApplyOutput(ctx, &stateContextHolder{
 		input:          at.Input,
 		effectiveInput: nil,

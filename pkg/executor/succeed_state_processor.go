@@ -40,7 +40,10 @@ func (p *succeedStateProcessor) CompleteState(ctx context.Context, cmd *Complete
 	)
 
 	// 1. find the next state
-	at := e.activityContextes[cmd.ActivityID]
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
 
 	output, err := s.ApplyOutput(ctx, &stateContextHolder{
 		input:          at.Input,
