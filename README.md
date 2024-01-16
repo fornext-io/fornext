@@ -1,4 +1,4 @@
-<!-- <p align="center"><img src="" alt="" height="100px"></p> -->
+<p align="center"><img src="doc/fornext.png" alt="" height="100px"></p>
 
 <div align="center">
   <a href="https://codecov.io/gh/fornext-io/fornext" > 

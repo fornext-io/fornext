@@ -17,10 +17,18 @@ func (p *parallelStateProcessor) StartState(ctx context.Context, cmd *StartState
 		slog.String("ActivityID", cmd.ActivityID),
 	)
 
-	at := e.activityContextes[cmd.ActivityID]
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
+
 	at.BranchStatus = &ActivityBranchStatus{
 		Max:  len(s.Branches),
 		Done: 0,
+	}
+	err = Set[*ActivityContext](context.Background(), e.store, cmd.ActivityID, at)
+	if err != nil {
+		panic(err)
 	}
 
 	input, err := s.ApplyInput(ctx, &stateContextHolder{
@@ -48,7 +56,11 @@ func (p *parallelStateProcessor) CompleteState(ctx context.Context, cmd *Complet
 		slog.String("ActivityID", cmd.ActivityID),
 	)
 
-	at := e.activityContextes[cmd.ActivityID]
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
+
 	output, err := s.ApplyOutput(ctx, &stateContextHolder{
 		input:          at.Input,
 		effectiveInput: nil,

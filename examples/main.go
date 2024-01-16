@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path"
 
@@ -24,7 +25,12 @@ func main() {
 		panic(err)
 	}
 
-	e := executor.NewExecutor(&sm)
+	e := executor.NewExecutor(&sm, map[string]func(*executor.CreateTaskCommand) []byte{
+		"task1": func(ctc *executor.CreateTaskCommand) []byte {
+			slog.Info("start task", slog.Any("CreateTaskCommand", ctc))
+			return ctc.Input
+		},
+	})
 	e.Run([]byte(`{"name": "123", "data": 10}`))
 	ec := e.WaitExecutionDone()
 	fmt.Printf("id: %v\n", ec.ID)

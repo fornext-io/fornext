@@ -50,29 +50,38 @@ type Executor struct {
 	sm  *fsl.StateMachine
 	ctx *ExecutionContext
 
-	activityContextes  map[string]*ActivityContext
-	branchContextes    map[string]*BranchContext
-	iterationContextes map[string]*IterationContext
-	taskContextes      map[string]*TaskContext
+	// iterationContextes map[string]*IterationContext
+	store *Storage
 
 	done chan interface{}
 	ev   chan interface{}
 
-	c *hybridLogicalClock
+	c            *hybridLogicalClock
+	taskHandlers map[string]func(cmd *CreateTaskCommand) []byte
 }
 
 // NewExecutor ...
-func NewExecutor(sm *fsl.StateMachine) *Executor {
-	v := &Executor{
-		sm:                 sm,
-		done:               make(chan interface{}),
-		ev:                 make(chan interface{}, 100),
-		activityContextes:  map[string]*ActivityContext{},
-		branchContextes:    map[string]*BranchContext{},
-		iterationContextes: map[string]*IterationContext{},
-		taskContextes:      map[string]*TaskContext{},
-		c:                  newHybridLogicalClock(),
+func NewExecutor(sm *fsl.StateMachine, handlers map[string]func(*CreateTaskCommand) []byte) *Executor {
+	store, err := NewStorage("./fornext")
+	if err != nil {
+		panic(err)
 	}
+
+	v := &Executor{
+		sm:   sm,
+		done: make(chan interface{}),
+		ev:   make(chan interface{}, 100),
+		// iterationContextes: map[string]*IterationContext{},
+		store:        store,
+		c:            newHybridLogicalClock(),
+		taskHandlers: map[string]func(*CreateTaskCommand) []byte{},
+	}
+	v.taskHandlers["__sleep"] = v.executeSleepTask
+
+	for k, vv := range handlers {
+		v.taskHandlers[k] = vv
+	}
+
 	return v
 }
 
@@ -199,13 +208,17 @@ func (e *Executor) processStartStateCommand(cmd *StartStateCommand) {
 		ActivityID: cmd.ActivityID,
 	}
 
-	e.activityContextes[cmd.ActivityID] = &ActivityContext{
+	err := Set(context.Background(), e.store, cmd.ActivityID, &ActivityContext{
 		ID:                cmd.ActivityID,
 		StateName:         cmd.StateName,
 		ParentBranchID:    cmd.ParentBranchID,
 		ParentIterationID: cmd.ParentIterationID,
 		Input:             cmd.Input,
+	})
+	if err != nil {
+		panic(err)
 	}
+
 	state := findState(e.sm, cmd.StateName)
 	switch sss := state.(type) {
 	case *fsl.TaskState:
@@ -254,28 +267,38 @@ func (e *Executor) processStartStateCommand(cmd *StartStateCommand) {
 	}
 }
 
+func (e *Executor) executeTask(cmd *CreateTaskCommand) {
+	go func() {
+		h := e.taskHandlers[cmd.Resource]
+		if h == nil {
+			panic(fmt.Errorf("cannot find handler for task %v", cmd.Resource))
+		}
+
+		output := h(cmd)
+		e.ev <- &CompleteTaskCommand{
+			TaskID: cmd.ID,
+			Output: output,
+		}
+	}()
+}
+
+func (e *Executor) executeSleepTask(cmd *CreateTaskCommand) []byte {
+	time.Sleep(5 * time.Second)
+	return cmd.Input
+}
+
 func (e *Executor) processCreateTaskCommand(cmd *CreateTaskCommand) {
 	e.ev <- &TaskCreatedEvent{
 		ID: cmd.ID,
 	}
-	e.taskContextes[cmd.ID] = &TaskContext{
+	err := Set(context.Background(), e.store, cmd.ID, &TaskContext{
 		ActivityID: cmd.ActivityID,
+	})
+	if err != nil {
+		panic(err)
 	}
 
-	go func() {
-		if cmd.Resource == "__sleep" {
-			time.Sleep(5 * time.Second)
-			e.ev <- &CompleteTaskCommand{
-				TaskID: cmd.ID,
-				Output: cmd.Input,
-			}
-		} else {
-			e.ev <- &CompleteTaskCommand{
-				TaskID: cmd.ID,
-				Output: cmd.Input,
-			}
-		}
-	}()
+	e.executeTask(cmd)
 }
 
 func (e *Executor) processActivateTaskCommand(_ *ActivateTaskCommand) {
@@ -285,7 +308,10 @@ func (e *Executor) processActivateTaskCommand(_ *ActivateTaskCommand) {
 func (e *Executor) processCompleteTaskCommand(cmd *CompleteTaskCommand) {
 	fmt.Printf("complete task command: %+v\n", cmd)
 
-	taskCtx := e.taskContextes[cmd.TaskID]
+	taskCtx, err := Get[TaskContext](context.Background(), e.store, cmd.TaskID)
+	if err != nil {
+		panic(err)
+	}
 
 	e.ev <- &TaskCompletedEvent{
 		TaskID: cmd.TaskID,
@@ -296,21 +322,18 @@ func (e *Executor) processCompleteTaskCommand(cmd *CompleteTaskCommand) {
 	}
 }
 
-// 本地状态在什么时候修改？
-//  1. 发送消息之前，那么可能出现消息没有发送成功，需要回滚（其实不会出现这个问题，因为 command 是 determin 的）
-//  2. 关键是什么时候回复给客户？如果是 determin 的，那么无所谓
-//  3. 收到一个 cmd，然后记录到本地存储中（标记为还没有处理），然后发送给 scheduler + processor，调度（不同的 execution 可以并行）
-//     然后执行并记录本地状态，发送新的 command，删除旧的 command，处理下一个（不用等待发送成功？应该无需，可以直接开始处理下一个，不然要等待发送完成才能进行下一个的处理，延迟会很高；而且这里不等待是没有问题的，因为 cmd 是 determin 的，假设有新的 leader 启动，得到的状态也会是一致的），但是这里删除、修改是需要 transaction 的，避免修改成功，删除没成功，导致重启时 cmd 的重复处理
-//     另外，可能出现本地应用成功，然后重启重新成为 leader，但是 cmd & event 没有发送成功的情况，则需要将要发送的 cmd 保存到 kv，然后重新成为 leader 的时候重发
-//     对于 follower，则在收到 event 之后删除旧的 command
 func (e *Executor) processCompleteStateCommand(cmd *CompleteStateCommand) {
 	slog.InfoContext(context.Background(), "complete state command", slog.Any("Command", cmd), slog.String("Output", string(cmd.Output)))
 
 	e.ev <- &StateCompletedEvent{
 		ActivityID: cmd.ActivityID,
 	}
-	state := findState(e.sm, e.activityContextes[cmd.ActivityID].StateName)
+	act, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
 
+	state := findState(e.sm, act.StateName)
 	switch sss := state.(type) {
 	case *fsl.TaskState:
 		err := (&taskStateProcessor{}).CompleteState(context.Background(), cmd, e, sss)
@@ -361,13 +384,20 @@ func (e *Executor) processStartBranchCommand(cmd *StartBranchCommand) {
 	e.ev <- &BranchStartedEvent{
 		BranchID: cmd.BranchID,
 	}
-	e.branchContextes[cmd.BranchID] = &BranchContext{
+	err := Set(context.Background(), e.store, cmd.BranchID, &BranchContext{
 		BranchID:   cmd.BranchID,
 		Index:      cmd.Index,
 		ActivityID: cmd.ActivityID,
 		Input:      cmd.Input,
+	})
+	if err != nil {
+		panic(err)
 	}
-	at := e.activityContextes[cmd.ActivityID]
+
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
 
 	state := findState(e.sm, at.StateName).(*fsl.ParallelState)
 	e.ev <- &StartStateCommand{
@@ -383,10 +413,23 @@ func (e *Executor) processCompleteBranchCommand(cmd *CompleteBranchCommand) {
 	e.ev <- &BranchCompletedEvent{
 		BranchID: cmd.BranchID,
 	}
-	at := e.activityContextes[e.branchContextes[cmd.BranchID].ActivityID]
+	branchCtx, err := Get[BranchContext](context.Background(), e.store, cmd.BranchID)
+	if err != nil {
+		panic(err)
+	}
+
+	at, err := Get[ActivityContext](context.Background(), e.store, branchCtx.ActivityID)
+	if err != nil {
+		panic(err)
+	}
+
 	at.BranchStatus.Done++
 	// 此处还需要考虑顺序问题
 	at.BranchStatus.Output = append(at.BranchStatus.Output, cmd.Output)
+	err = Set(context.Background(), e.store, branchCtx.ActivityID, at)
+	if err != nil {
+		panic(err)
+	}
 
 	if at.BranchStatus.Done == at.BranchStatus.Max {
 		// 拼接所有的 output 为列表
@@ -400,7 +443,7 @@ func (e *Executor) processCompleteBranchCommand(cmd *CompleteBranchCommand) {
 		}
 
 		e.ev <- &CompleteStateCommand{
-			ActivityID: e.branchContextes[cmd.BranchID].ActivityID,
+			ActivityID: branchCtx.ActivityID,
 			Output:     outputBytes,
 		}
 	}
@@ -410,12 +453,19 @@ func (e *Executor) processStartIterationCommand(cmd *StartIterationCommand) {
 	e.ev <- &IterationStartedEvent{
 		IterationID: cmd.IterationID,
 	}
-	e.iterationContextes[cmd.IterationID] = &IterationContext{
+	err := Set(context.Background(), e.store, cmd.IterationID, &IterationContext{
 		IterationID: cmd.IterationID,
 		Index:       cmd.Index,
 		ActivityID:  cmd.ActivityID,
+	})
+	if err != nil {
+		panic(err)
 	}
-	at := e.activityContextes[cmd.ActivityID]
+
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
 
 	state := findState(e.sm, at.StateName).(*fsl.MapState)
 	e.ev <- &StartStateCommand{
@@ -431,9 +481,22 @@ func (e *Executor) processCompleteIterationCommand(cmd *CompleteIterationCommand
 	e.ev <- &IterationCompletedEvent{
 		IterationID: cmd.IterationID,
 	}
-	at := e.activityContextes[e.iterationContextes[cmd.IterationID].ActivityID]
+	iterCtx, err := Get[IterationContext](context.Background(), e.store, cmd.IterationID)
+	if err != nil {
+		panic(err)
+	}
+
+	at, err := Get[ActivityContext](context.Background(), e.store, iterCtx.ActivityID)
+	if err != nil {
+		panic(err)
+	}
+
 	at.IterationStatus.Done++
 	at.IterationStatus.Output = append(at.IterationStatus.Output, cmd.Output)
+	err = Set(context.Background(), e.store, iterCtx.ActivityID, at)
+	if err != nil {
+		panic(err)
+	}
 
 	if at.IterationStatus.Done == at.IterationStatus.Max {
 		// 拼接所有的 output 为列表
@@ -447,7 +510,7 @@ func (e *Executor) processCompleteIterationCommand(cmd *CompleteIterationCommand
 		}
 
 		e.ev <- &CompleteStateCommand{
-			ActivityID: e.iterationContextes[cmd.IterationID].ActivityID,
+			ActivityID: iterCtx.ActivityID,
 			Output:     outputBytes,
 		}
 	}

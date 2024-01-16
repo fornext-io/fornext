@@ -32,7 +32,10 @@ func (p *failStateProcessor) CompleteState(ctx context.Context, cmd *CompleteSta
 	)
 
 	// 1. find the next state
-	at := e.activityContextes[cmd.ActivityID]
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
 
 	switch {
 	case at.ParentBranchID != nil:

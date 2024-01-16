@@ -40,7 +40,7 @@ func (p *choiceStateProcessor) StartState(ctx context.Context, cmd *StartStateCo
 	return nil
 }
 
-func (p *choiceStateProcessor) isMatchedAllChoiceRule(ctx context.Context, output interface{}, rules []fsl.ChoiceRule) bool {
+func (p *choiceStateProcessor) isMatchedAllChoiceRule(ctx context.Context, output any, rules []fsl.ChoiceRule) bool {
 	for _, rule := range rules {
 		if !p.isMatchedChoiceRule(ctx, output, rule) {
 			return false
@@ -50,7 +50,7 @@ func (p *choiceStateProcessor) isMatchedAllChoiceRule(ctx context.Context, outpu
 	return true
 }
 
-func (p *choiceStateProcessor) isMatchedAnyChoiceRule(ctx context.Context, output interface{}, rules []fsl.ChoiceRule) bool {
+func (p *choiceStateProcessor) isMatchedAnyChoiceRule(ctx context.Context, output any, rules []fsl.ChoiceRule) bool {
 	for _, rule := range rules {
 		if p.isMatchedChoiceRule(ctx, output, rule) {
 			return true
@@ -293,7 +293,7 @@ func (p *choiceStateProcessor) isMatchedChoiceRule(ctx context.Context, output i
 	case rule.IsNull != nil:
 		return variableIsNull(*rule.Variable, output)
 	case rule.IsPresent != nil:
-		return variableIsPresent(*rule.Variable, output)
+		return variableIsPresent(*rule.Variable, output) == *rule.IsPresent
 	case rule.IsNumeric != nil:
 		return variableTypeMatch[float64](*rule.Variable, output)
 	case rule.IsString != nil:
@@ -331,8 +331,11 @@ func (p *choiceStateProcessor) CompleteState(ctx context.Context, cmd *CompleteS
 	slog.InfoContext(ctx, "complete choice state",
 		slog.String("ActivityID", cmd.ActivityID),
 	)
+	at, err := Get[ActivityContext](context.Background(), e.store, cmd.ActivityID)
+	if err != nil {
+		panic(err)
+	}
 
-	at := e.activityContextes[cmd.ActivityID]
 	// TODO: found the next state
 	next, err := p.findNextState(ctx, cmd.Output, s)
 	if err != nil {
