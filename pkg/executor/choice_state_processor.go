@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/fornext-io/fornext/pkg/fsl"
-	"github.com/google/uuid"
 	"github.com/ohler55/ojg/jp"
 )
 
@@ -352,7 +351,8 @@ func (p *choiceStateProcessor) CompleteState(ctx context.Context, cmd *CompleteS
 	}
 
 	e.ev <- &StartStateCommand{
-		ActivityID:        uuid.NewString(), // TODO: add executionid in context
+		ActivityID:        at.ExecutionID + "/" + e.c.Next().AsString(),
+		ExecutionID:       at.ExecutionID,
 		StateName:         next,
 		ParentBranchID:    at.ParentBranchID,
 		ParentIterationID: at.ParentIterationID,

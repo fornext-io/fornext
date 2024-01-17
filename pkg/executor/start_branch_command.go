@@ -10,6 +10,8 @@ type StartBranchCommand struct {
 	//  2. {id}: is the branch index of current branch, begin with 0
 	BranchID string
 
+	ExecutionID string
+
 	// Index is serial of this branch in ParallelState.
 	Index int
 

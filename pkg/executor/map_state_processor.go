@@ -3,10 +3,10 @@ package executor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/fornext-io/fornext/pkg/fsl"
-	"github.com/google/uuid"
 )
 
 type mapStateProcessor struct {
@@ -55,8 +55,9 @@ func (p *mapStateProcessor) StartState(ctx context.Context, cmd *StartStateComma
 		}
 
 		e.ev <- &StartIterationCommand{
-			IterationID: uuid.NewString(),
+			IterationID: fmt.Sprintf("%s/i%v", cmd.ActivityID, i),
 			ActivityID:  cmd.ActivityID,
+			ExecutionID: cmd.ExecutionID,
 			Index:       i,
 			Input:       data,
 		}
@@ -107,8 +108,9 @@ func (p *mapStateProcessor) CompleteState(ctx context.Context, cmd *CompleteStat
 	}
 
 	e.ev <- &StartStateCommand{
-		ActivityID:        uuid.NewString(),
+		ActivityID:        at.ExecutionID + "/" + e.c.Next().AsString(),
 		StateName:         s.Next,
+		ExecutionID:       at.ExecutionID,
 		ParentBranchID:    at.ParentBranchID,
 		ParentIterationID: at.ParentIterationID,
 		Input:             output,

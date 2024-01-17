@@ -5,6 +5,8 @@ type ActivityContext struct {
 	// /{tenant}/{namespace}/execution/{id}/activity/{id}
 	ID string
 
+	ExecutionID string
+
 	StateName string
 	Input     []byte
 

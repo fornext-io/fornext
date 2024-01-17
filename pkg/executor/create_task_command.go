@@ -14,6 +14,9 @@ type CreateTaskCommand struct {
 	// ActivityID is the identify of activity which this task belongs.
 	ActivityID string
 
+	// ExecutionID is the identify of execution which this task belong to.
+	ExecutionID string
+
 	// Resource is the task's reference resource definitions.
 	Resource string
 

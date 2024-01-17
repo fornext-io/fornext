@@ -2,10 +2,10 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/fornext-io/fornext/pkg/fsl"
-	"github.com/google/uuid"
 )
 
 type parallelStateProcessor struct {
@@ -41,10 +41,11 @@ func (p *parallelStateProcessor) StartState(ctx context.Context, cmd *StartState
 
 	for i := range s.Branches {
 		e.ev <- &StartBranchCommand{
-			BranchID:   uuid.NewString(),
-			ActivityID: cmd.ActivityID,
-			Index:      i,
-			Input:      input,
+			BranchID:    fmt.Sprintf("%s/b%v", cmd.ActivityID, i),
+			ActivityID:  cmd.ActivityID,
+			ExecutionID: cmd.ExecutionID,
+			Index:       i,
+			Input:       input,
 		}
 	}
 
@@ -92,8 +93,9 @@ func (p *parallelStateProcessor) CompleteState(ctx context.Context, cmd *Complet
 	}
 
 	e.ev <- &StartStateCommand{
-		ActivityID:        uuid.NewString(),
+		ActivityID:        at.ExecutionID + "/" + e.c.Next().AsString(),
 		StateName:         s.Next,
+		ExecutionID:       at.ExecutionID,
 		ParentBranchID:    at.ParentBranchID,
 		ParentIterationID: at.ParentIterationID,
 		Input:             output,

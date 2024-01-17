@@ -13,6 +13,9 @@ type StartStateCommand struct {
 	// An execution's all activity have the same prefix, and will in same partition.
 	ActivityID string
 
+	// ExecutionID is the identify of execution which this state belong to.
+	ExecutionID string
+
 	// StateName is current state's name which ready for execution, and because all state's
 	// name must be unique (include in each nest state), so only name is enough.
 	StateName string

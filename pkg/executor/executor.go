@@ -10,7 +10,6 @@ import (
 
 	"github.com/fornext-io/fornext/pkg/fsl"
 	"github.com/fornext-io/fornext/pkg/utils"
-	"github.com/google/uuid"
 )
 
 type stateContextHolder struct {
@@ -50,7 +49,6 @@ type Executor struct {
 	sm  *fsl.StateMachine
 	ctx *ExecutionContext
 
-	// iterationContextes map[string]*IterationContext
 	store *Storage
 
 	done chan interface{}
@@ -68,10 +66,9 @@ func NewExecutor(sm *fsl.StateMachine, handlers map[string]func(*CreateTaskComma
 	}
 
 	v := &Executor{
-		sm:   sm,
-		done: make(chan interface{}),
-		ev:   make(chan interface{}, 100),
-		// iterationContextes: map[string]*IterationContext{},
+		sm:           sm,
+		done:         make(chan interface{}),
+		ev:           make(chan interface{}, 100),
 		store:        store,
 		c:            newHybridLogicalClock(),
 		taskHandlers: map[string]func(*CreateTaskCommand) []byte{},
@@ -170,10 +167,11 @@ func (e *Executor) run() {
 			}
 			t := e.c.Next()
 			e.ev <- &StartStateCommand{
-				ActivityID: evv.ID + "/" + t.AsString(),
-				StateName:  e.sm.StartAt,
-				Input:      evv.Input,
-				Timestamp:  t.AsUint64(),
+				ActivityID:  evv.ID + "/" + t.AsString(),
+				ExecutionID: evv.ID,
+				StateName:   e.sm.StartAt,
+				Input:       evv.Input,
+				Timestamp:   t.AsUint64(),
 			}
 		case *StartStateCommand:
 			e.processStartStateCommand(evv)
@@ -210,6 +208,7 @@ func (e *Executor) processStartStateCommand(cmd *StartStateCommand) {
 
 	err := Set(context.Background(), e.store, cmd.ActivityID, &ActivityContext{
 		ID:                cmd.ActivityID,
+		ExecutionID:       cmd.ExecutionID,
 		StateName:         cmd.StateName,
 		ParentBranchID:    cmd.ParentBranchID,
 		ParentIterationID: cmd.ParentIterationID,
@@ -402,7 +401,8 @@ func (e *Executor) processStartBranchCommand(cmd *StartBranchCommand) {
 	state := findState(e.sm, at.StateName).(*fsl.ParallelState)
 	e.ev <- &StartStateCommand{
 		StateName:         state.Branches[cmd.Index].StartAt,
-		ActivityID:        uuid.NewString(),
+		ActivityID:        at.ExecutionID + "/" + e.c.Next().AsString(),
+		ExecutionID:       at.ExecutionID,
 		ParentBranchID:    &cmd.BranchID,
 		ParentIterationID: nil,
 		Input:             cmd.Input,
@@ -470,7 +470,8 @@ func (e *Executor) processStartIterationCommand(cmd *StartIterationCommand) {
 	state := findState(e.sm, at.StateName).(*fsl.MapState)
 	e.ev <- &StartStateCommand{
 		StateName:         state.ItemProcessor.StartAt,
-		ActivityID:        uuid.NewString(),
+		ExecutionID:       at.ExecutionID,
+		ActivityID:        at.ExecutionID + "/" + e.c.Next().AsString(),
 		ParentBranchID:    nil,
 		ParentIterationID: &cmd.IterationID,
 		Input:             cmd.Input,
